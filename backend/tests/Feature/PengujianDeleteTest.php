@@ -48,18 +48,16 @@ class PengujianDeleteTest extends TestCase
     }
 
     /**
-     * Test role petugas_lab ditolak (403) saat mencoba menghapus data pengujian (Rule 4.5).
+     * Test pengguna terautentikasi sukses melakukan soft-delete data pengujian.
      */
-    public function test_petugas_lab_tidak_bisa_soft_delete(): void
+    public function test_seluruh_admin_bisa_soft_delete(): void
     {
         $response = $this->actingAs($this->petugasLab, 'sanctum')
             ->deleteJson("/api/admin/pengujian/{$this->pengujian->id}");
 
-        $response->assertStatus(403);
-        $this->assertDatabaseHas('pengujian', [
-            'id' => $this->pengujian->id,
-            'is_deleted' => false,
-        ]);
+        $response->assertStatus(200);
+        $this->pengujian->refresh();
+        $this->assertTrue($this->pengujian->is_deleted);
     }
 
     /**

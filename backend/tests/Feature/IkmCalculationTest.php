@@ -94,8 +94,8 @@ class IkmCalculationTest extends TestCase
         $this->assertEquals(3.5, $stats['rata_rata_unsur']['u1']);
         $this->assertEquals(0.219, $stats['rata_rata_unsur_terbobot']['u1']);
         $this->assertEquals(87.50, $stats['ikm']);
-        $this->assertEquals('A', $stats['mutu']);
-        $this->assertEquals('Sangat Baik', $stats['kinerja']);
+        $this->assertEquals('B', $stats['mutu']);
+        $this->assertEquals('Baik', $stats['kinerja']);
 
         // 4. Verifikasi endpoint admin rekap IKM
         $response = $this->actingAs($this->admin, 'sanctum')
@@ -103,7 +103,7 @@ class IkmCalculationTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('stats.ikm', 87.50)
-            ->assertJsonPath('stats.mutu', 'A')
+            ->assertJsonPath('stats.mutu', 'B')
             ->assertJsonCount(2, 'responden.data');
     }
 
@@ -207,5 +207,98 @@ class IkmCalculationTest extends TestCase
             ->assertJsonPath('stats.total_responden', 1)
             ->assertJsonPath('stats.ikm', 100)
             ->assertJsonCount(1, 'responden.data');
+    }
+
+    /**
+     * Test filter IKM berdasarkan Triwulan (Q1 s/d Q4).
+     */
+    public function test_filter_ikm_berdasarkan_triwulan(): void
+    {
+        $p1 = Pengujian::create([
+            'nomor_pengujian' => 'UJI-TW-01',
+            'nama_pemohon' => 'Q1 User',
+            'email_pemohon' => 'q1@example.com',
+            'jenis_pengujian' => 'Deteksi GMO',
+        ]);
+
+        $p2 = Pengujian::create([
+            'nomor_pengujian' => 'UJI-TW-02',
+            'nama_pemohon' => 'Q3 User 1',
+            'email_pemohon' => 'q3_1@example.com',
+            'jenis_pengujian' => 'Deteksi GMO',
+        ]);
+
+        $p3 = Pengujian::create([
+            'nomor_pengujian' => 'UJI-TW-03',
+            'nama_pemohon' => 'Q3 User 2',
+            'email_pemohon' => 'q3_2@example.com',
+            'jenis_pengujian' => 'Deteksi GMO',
+        ]);
+
+        // Responden 1: Februari (Triwulan 1)
+        Skm::create([
+            'pengujian_id' => $p1->id,
+            'nama' => 'Q1 User',
+            'jenis_kelamin' => 'Laki-laki',
+            'pendidikan' => 'D4/S1',
+            'usia' => '26-34 tahun',
+            'pekerjaan' => 'PNS',
+            'disabilitas' => 'Tidak',
+            'skor_1' => 4, 'skor_2' => 4, 'skor_3' => 4, 'skor_4' => 4,
+            'skor_5' => 4, 'skor_6' => 4, 'skor_7' => 4, 'skor_8' => 4,
+            'skor_9' => 4, 'skor_10' => 4, 'skor_11' => 4, 'skor_12' => 4,
+            'skor_13' => 4, 'skor_14' => 4, 'skor_15' => 4, 'skor_16' => 4,
+            'tanggal_isi' => '2026-02-15',
+        ]);
+
+        // Responden 2: Juli (Triwulan 3)
+        Skm::create([
+            'pengujian_id' => $p2->id,
+            'nama' => 'Q3 User 1',
+            'jenis_kelamin' => 'Perempuan',
+            'pendidikan' => 'S2/S3',
+            'usia' => '35-44 tahun',
+            'pekerjaan' => 'Dosen/Peneliti',
+            'disabilitas' => 'Tidak',
+            'skor_1' => 3, 'skor_2' => 3, 'skor_3' => 3, 'skor_4' => 3,
+            'skor_5' => 3, 'skor_6' => 3, 'skor_7' => 3, 'skor_8' => 3,
+            'skor_9' => 3, 'skor_10' => 3, 'skor_11' => 3, 'skor_12' => 3,
+            'skor_13' => 3, 'skor_14' => 3, 'skor_15' => 3, 'skor_16' => 3,
+            'tanggal_isi' => '2026-07-10',
+        ]);
+
+        // Responden 3: September (Triwulan 3)
+        Skm::create([
+            'pengujian_id' => $p3->id,
+            'nama' => 'Q3 User 2',
+            'jenis_kelamin' => 'Laki-laki',
+            'pendidikan' => 'D4/S1',
+            'usia' => '26-34 tahun',
+            'pekerjaan' => 'Swasta',
+            'disabilitas' => 'Tidak',
+            'skor_1' => 4, 'skor_2' => 4, 'skor_3' => 4, 'skor_4' => 4,
+            'skor_5' => 4, 'skor_6' => 4, 'skor_7' => 4, 'skor_8' => 4,
+            'skor_9' => 4, 'skor_10' => 4, 'skor_11' => 4, 'skor_12' => 4,
+            'skor_13' => 4, 'skor_14' => 4, 'skor_15' => 4, 'skor_16' => 4,
+            'tanggal_isi' => '2026-09-05',
+        ]);
+
+        $service = new IkmCalculationService();
+
+        // Triwulan 1: harus hanya ada 1 responden
+        $statsTw1 = $service->calculateIkm(null, 2026, 1);
+        $this->assertEquals(1, $statsTw1['total_responden']);
+
+        // Triwulan 3: harus ada 2 responden (Juli & September)
+        $statsTw3 = $service->calculateIkm(null, 2026, 3);
+        $this->assertEquals(2, $statsTw3['total_responden']);
+
+        // Endpoint API dengan filter triwulan
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/admin/skm/ikm?triwulan=3&tahun=2026');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('stats.total_responden', 2)
+            ->assertJsonCount(2, 'responden.data');
     }
 }

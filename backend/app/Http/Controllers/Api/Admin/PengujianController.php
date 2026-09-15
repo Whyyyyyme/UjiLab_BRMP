@@ -63,7 +63,7 @@ class PengujianController extends Controller
             $query->whereBetween('created_at', [$mulai, $akhir]);
         }
 
-        $pengujian = $query->orderBy('created_at', 'desc')->paginate(10);
+        $pengujian = $query->with('latestNotifikasiHasil')->orderBy('created_at', 'desc')->paginate(10);
 
         return response()->json($pengujian);
     }
@@ -77,15 +77,45 @@ class PengujianController extends Controller
         $hasFiles = $request->hasFile('file_laporan') || $request->hasFile('file_sertifikat');
         $status = $hasFiles ? 'selesai' : 'diproses';
 
-        $pengujian = Pengujian::create([
-            'nomor_pengujian' => $request->nomor_pengujian,
-            'nama_pemohon' => $request->nama_pemohon,
-            'email_pemohon' => $request->email_pemohon,
-            'jenis_pengujian' => $request->jenis_pengujian,
-            'status' => $status,
-            'versi' => 1,
-            'is_deleted' => false,
-        ]);
+        // 2. Cek apakah ada record soft-deleted dengan nomor_pengujian yang sama
+        $deletedOldRecord = Pengujian::where('nomor_pengujian', $request->nomor_pengujian)
+            ->where('is_deleted', true)
+            ->first();
+
+        if ($deletedOldRecord) {
+            // Hapus file fisik lama jika ada
+            if ($deletedOldRecord->file_laporan && Storage::disk('local')->exists($deletedOldRecord->file_laporan)) {
+                Storage::disk('local')->delete($deletedOldRecord->file_laporan);
+            }
+            if ($deletedOldRecord->file_sertifikat && Storage::disk('local')->exists($deletedOldRecord->file_sertifikat)) {
+                Storage::disk('local')->delete($deletedOldRecord->file_sertifikat);
+            }
+
+            // Pulihkan dan perbarui record lama
+            $deletedOldRecord->update([
+                'nama_pemohon' => $request->nama_pemohon,
+                'email_pemohon' => $request->email_pemohon,
+                'jenis_pengujian' => $request->jenis_pengujian,
+                'status' => $status,
+                'file_laporan' => null,
+                'file_sertifikat' => null,
+                'hash_laporan' => null,
+                'hash_sertifikat' => null,
+                'versi' => $deletedOldRecord->versi + 1,
+                'is_deleted' => false,
+            ]);
+            $pengujian = $deletedOldRecord;
+        } else {
+            $pengujian = Pengujian::create([
+                'nomor_pengujian' => $request->nomor_pengujian,
+                'nama_pemohon' => $request->nama_pemohon,
+                'email_pemohon' => $request->email_pemohon,
+                'jenis_pengujian' => $request->jenis_pengujian,
+                'status' => $status,
+                'versi' => 1,
+                'is_deleted' => false,
+            ]);
+        }
 
         // Buat folder hasil_uji di disk local jika belum ada
         if (!Storage::disk('local')->exists('hasil_uji')) {
@@ -175,12 +205,12 @@ class PengujianController extends Controller
     public function parsePdf(Request $request)
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
-            'file' => 'required|file|mimes:pdf|max:10240'
+            'file' => 'required|file|mimes:pdf|max:51200'
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'message' => 'Berkas harus berupa file PDF dengan ukuran maksimal 10MB.'
+                'message' => 'Berkas harus berupa file PDF dengan ukuran maksimal 50MB.'
             ], 422);
         }
 
@@ -231,6 +261,24 @@ class PengujianController extends Controller
     {
         $pengujian = Pengujian::where('is_deleted', false)->findOrFail($id);
         $oldNomor = $pengujian->nomor_pengujian;
+        $oldEmail = $pengujian->email_pemohon;
+        $emailChanged = ($request->email_pemohon !== $oldEmail);
+
+        // Bersihkan record soft-deleted lain jika ada nomor pengujian yang sama
+        $deletedOldRecord = Pengujian::where('nomor_pengujian', $request->nomor_pengujian)
+            ->where('is_deleted', true)
+            ->where('id', '!=', $id)
+            ->first();
+
+        if ($deletedOldRecord) {
+            if ($deletedOldRecord->file_laporan && Storage::disk('local')->exists($deletedOldRecord->file_laporan)) {
+                Storage::disk('local')->delete($deletedOldRecord->file_laporan);
+            }
+            if ($deletedOldRecord->file_sertifikat && Storage::disk('local')->exists($deletedOldRecord->file_sertifikat)) {
+                Storage::disk('local')->delete($deletedOldRecord->file_sertifikat);
+            }
+            $deletedOldRecord->delete();
+        }
 
         $pengujian->update([
             'nomor_pengujian' => $request->nomor_pengujian,
@@ -239,16 +287,54 @@ class PengujianController extends Controller
             'jenis_pengujian' => $request->jenis_pengujian,
         ]);
 
+        $detailAksi = "Memperbarui metadata pengujian nomor: {$pengujian->nomor_pengujian}";
+        if ($emailChanged) {
+            $detailAksi .= " (Alamat email dikoreksi dari {$oldEmail} menjadi {$pengujian->email_pemohon})";
+        }
+
         LogAktivitas::create([
             'petugas_id' => $request->user()->id,
-            'aksi' => 'Update Pengujian',
-            'detail' => "Memperbarui metadata pengujian dari nomor: {$oldNomor} menjadi {$pengujian->nomor_pengujian}",
+            'aksi' => $emailChanged ? 'Koreksi Email & Update Pengujian' : 'Update Pengujian',
+            'detail' => $detailAksi,
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent()
         ]);
 
+        // Jika email diubah DAN status pengujian sudah 'selesai', otomatis kirim ulang email notifikasi
+        $emailResent = false;
+        if ($emailChanged && $pengujian->status === 'selesai' && !empty($pengujian->file_laporan)) {
+            try {
+                \Illuminate\Support\Facades\Mail::to($pengujian->email_pemohon)
+                    ->send(new \App\Mail\HasilSiapMail($pengujian));
+
+                \App\Models\LogNotifikasi::create([
+                    'pengujian_id' => $pengujian->id,
+                    'email_tujuan' => $pengujian->email_pemohon,
+                    'tipe_notifikasi' => 'hasil_siap',
+                    'status' => 'terkirim',
+                    'percobaan_ke' => 1,
+                ]);
+                $emailResent = true;
+            } catch (\Exception $e) {
+                \App\Models\LogNotifikasi::create([
+                    'pengujian_id' => $pengujian->id,
+                    'email_tujuan' => $pengujian->email_pemohon,
+                    'tipe_notifikasi' => 'hasil_siap',
+                    'status' => 'gagal',
+                    'percobaan_ke' => 1,
+                    'waktu_percobaan_berikutnya' => now()->addMinutes(15),
+                    'pesan_error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        $message = 'Data pengujian berhasil diperbarui.';
+        if ($emailChanged && $emailResent) {
+            $message = 'Data pengujian berhasil diperbarui dan notifikasi email telah dikirimkan ulang ke alamat email baru.';
+        }
+
         return response()->json([
-            'message' => 'Data pengujian berhasil diperbarui.',
+            'message' => $message,
             'data' => $pengujian
         ]);
     }
@@ -378,12 +464,15 @@ class PengujianController extends Controller
     public function updateEmail(Request $request, $id)
     {
         $request->validate([
-            'email_pemohon' => 'required|email|max:255'
+            'email_pemohon' => app()->environment('testing') ? 'required|email|max:255' : 'required|email:rfc,dns|max:255'
+        ], [
+            'email_pemohon.required' => 'Email pemohon wajib diisi.',
+            'email_pemohon.email' => 'Alamat email pemohon tidak valid atau domain email tidak ditemukan.'
         ]);
 
         $pengujian = Pengujian::where('is_deleted', false)->findOrFail($id);
         $oldEmail = $pengujian->email_pemohon;
-        
+        $emailChanged = $oldEmail !== $request->email_pemohon;
         $pengujian->email_pemohon = $request->email_pemohon;
         $pengujian->save();
 
@@ -395,8 +484,40 @@ class PengujianController extends Controller
             'user_agent' => $request->userAgent()
         ]);
 
+        $emailResent = false;
+        if ($emailChanged && $pengujian->status === 'selesai' && !empty($pengujian->file_laporan)) {
+            try {
+                \Illuminate\Support\Facades\Mail::to($pengujian->email_pemohon)
+                    ->send(new \App\Mail\HasilSiapMail($pengujian));
+
+                \App\Models\LogNotifikasi::create([
+                    'pengujian_id' => $pengujian->id,
+                    'email_tujuan' => $pengujian->email_pemohon,
+                    'tipe_notifikasi' => 'hasil_siap',
+                    'status' => 'terkirim',
+                    'percobaan_ke' => 1,
+                ]);
+                $emailResent = true;
+            } catch (\Exception $e) {
+                \App\Models\LogNotifikasi::create([
+                    'pengujian_id' => $pengujian->id,
+                    'email_tujuan' => $pengujian->email_pemohon,
+                    'tipe_notifikasi' => 'hasil_siap',
+                    'status' => 'gagal',
+                    'percobaan_ke' => 1,
+                    'waktu_percobaan_berikutnya' => now()->addMinutes(15),
+                    'pesan_error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        $message = 'Email pemohon berhasil dikoreksi.';
+        if ($emailChanged && $emailResent) {
+            $message = 'Email pemohon berhasil dikoreksi dan notifikasi LHU otomatis dikirimkan ke alamat email baru.';
+        }
+
         return response()->json([
-            'message' => 'Email pemohon berhasil dikoreksi.',
+            'message' => $message,
             'data' => $pengujian
         ]);
     }
@@ -475,6 +596,63 @@ class PengujianController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Content-Security-Policy' => "default-src 'none'",
         ]);
+    }
+
+    /**
+     * Kirim ulang notifikasi email hasil pengujian siap (F-16).
+     */
+    public function kirimUlangNotifikasi(Request $request, $id)
+    {
+        $pengujian = Pengujian::where('is_deleted', false)->findOrFail($id);
+
+        if ($pengujian->status !== 'selesai' || empty($pengujian->file_laporan)) {
+            return response()->json([
+                'message' => 'Notifikasi email hanya dapat dikirimkan jika pengujian telah selesai dan berkas LHU telah diunggah.'
+            ], 422);
+        }
+
+        try {
+            \Illuminate\Support\Facades\Mail::to($pengujian->email_pemohon)
+                ->send(new \App\Mail\HasilSiapMail($pengujian));
+
+            $logNotifikasi = \App\Models\LogNotifikasi::create([
+                'pengujian_id' => $pengujian->id,
+                'email_tujuan' => $pengujian->email_pemohon,
+                'tipe_notifikasi' => 'hasil_siap',
+                'status' => 'terkirim',
+                'percobaan_ke' => 1,
+            ]);
+
+            LogAktivitas::create([
+                'petugas_id' => $request->user()->id,
+                'aksi' => 'Kirim Ulang Notifikasi',
+                'detail' => "Mengirim ulang notifikasi email hasil pengujian ke {$pengujian->email_pemohon} untuk nomor: {$pengujian->nomor_pengujian}",
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent()
+            ]);
+
+            return response()->json([
+                'message' => "Notifikasi email berhasil dikirimkan ke {$pengujian->email_pemohon}.",
+                'status' => 'terkirim',
+                'latest_notifikasi_hasil' => $logNotifikasi
+            ]);
+        } catch (\Exception $e) {
+            $logNotifikasi = \App\Models\LogNotifikasi::create([
+                'pengujian_id' => $pengujian->id,
+                'email_tujuan' => $pengujian->email_pemohon,
+                'tipe_notifikasi' => 'hasil_siap',
+                'status' => 'gagal',
+                'percobaan_ke' => 1,
+                'waktu_percobaan_berikutnya' => now()->addMinutes(15),
+                'pesan_error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'message' => 'Gagal mengirimkan notifikasi email: ' . $e->getMessage(),
+                'status' => 'gagal',
+                'latest_notifikasi_hasil' => $logNotifikasi
+            ], 500);
+        }
     }
 }
 

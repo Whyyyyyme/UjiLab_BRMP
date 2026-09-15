@@ -68,4 +68,14 @@ class Pengujian extends Model
     {
         return $this->hasMany(AksesFileLog::class, 'pengujian_id');
     }
+
+    /**
+     * Relasi ke Log Notifikasi Hasil Terakhir
+     */
+    public function latestNotifikasiHasil(): HasOne
+    {
+        return $this->hasOne(LogNotifikasi::class, 'pengujian_id')
+            ->where('tipe_notifikasi', 'hasil_siap')
+            ->latestOfMany();
+    }
 }

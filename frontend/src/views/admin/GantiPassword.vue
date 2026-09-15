@@ -135,7 +135,7 @@ const handleGantiPassword = async () => {
 .change-password-page {
   max-width: 480px;
   margin: 30px auto;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
 }
 
 .card {

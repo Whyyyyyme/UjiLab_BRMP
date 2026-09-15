@@ -1,9 +1,20 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../services/api'
 import { useAksesPublikStore } from '../../stores/aksesPublik'
-import { AlertTriangle, CheckCircle2, Send, Check, RefreshCw } from '@lucide/vue'
+import { 
+  AlertTriangle, 
+  CheckCircle2, 
+  Send, 
+  Check, 
+  RefreshCw,
+  ShieldCheck,
+  Lock,
+  Mail,
+  ArrowLeft,
+  Clock
+} from '@lucide/vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,14 +25,26 @@ const emailTersamar = ref(route.query.email || '')
 const pengujianId = ref(aksesPublikStore.pengujianId)
 const nomorPengujian = ref(aksesPublikStore.nomorPengujian)
 
-const otpKode = ref('')
-const isOtpSent = ref(false)
+// State OTP 6-Digit Box (UX 1 B)
+const otpDigits = ref(['', '', '', '', '', ''])
+const inputRefs = ref([])
+
+const otpKode = computed(() => otpDigits.value.join(''))
+
 const isLoading = ref(false)
+const isOtpSent = ref(false)
 const cooldownTime = ref(0)
 const errorMessage = ref('')
 const successMessage = ref('')
 
 let cooldownInterval = null
+
+// Format waktu MM:SS
+const formatTime = (seconds) => {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+}
 
 // Proteksi jika data pengujian kosong (akses langsung halaman ini)
 onMounted(() => {
@@ -49,6 +72,7 @@ const startCooldown = () => {
 
 // Request OTP
 const handleSendOtp = async () => {
+  if (isLoading.value) return
   isLoading.value = true
   errorMessage.value = ''
   successMessage.value = ''
@@ -59,10 +83,15 @@ const handleSendOtp = async () => {
     })
     
     isOtpSent.value = true
-    successMessage.value = response.data.message
+    successMessage.value = response.data.message || 'Kode OTP telah berhasil dikirimkan ke email Anda.'
     startCooldown()
+    
+    // Auto focus ke kotak pertama
+    setTimeout(() => {
+      inputRefs.value[0]?.focus()
+    }, 100)
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Gagal mengirim kode OTP.'
+    errorMessage.value = error.response?.data?.message || 'Gagal mengirim kode OTP. Silakan coba kembali.'
   } finally {
     isLoading.value = false
   }
@@ -70,8 +99,9 @@ const handleSendOtp = async () => {
 
 // Verify OTP
 const handleVerifyOtp = async () => {
+  if (isLoading.value) return
   if (otpKode.value.length !== 6) {
-    errorMessage.value = 'Kode OTP harus berjumlah 6 digit.'
+    errorMessage.value = 'Kode OTP harus berjumlah 6 digit angka.'
     return
   }
 
@@ -85,15 +115,11 @@ const handleVerifyOtp = async () => {
       kode: otpKode.value
     })
 
-    // Sesi token di-simpan dalam memory (Pinia) untuk keamanan (tidak di localStorage)
     const token = response.data.token
-    
-    // Set token ke Axios/Pinia
     aksesPublikStore.setAkses(token, pengujianId.value, nomorPengujian.value)
 
-    successMessage.value = 'Verifikasi berhasil! Mengalihkan...'
+    successMessage.value = 'Verifikasi berhasil! Mengalihkan ke dokumen...'
 
-    // Panggil status check
     const statusResponse = await api.get('/api/public/pengujian/status')
     aksesPublikStore.setSkmFilled(statusResponse.data.skm_diisi)
 
@@ -103,366 +129,888 @@ const handleVerifyOtp = async () => {
       } else {
         router.push({ name: 'FormSkm' })
       }
-    }, 1500)
+    }, 1200)
 
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Verifikasi OTP gagal.'
+    errorMessage.value = error.response?.data?.message || 'Verifikasi OTP gagal. Periksa kembali kode Anda.'
   } finally {
     isLoading.value = false
+  }
+}
+
+// Handler Input Per-Digit
+const onDigitInput = (index, event) => {
+  const val = event.target.value.replace(/\D/g, '')
+  
+  if (val.length > 1) {
+    const chars = val.slice(0, 6).split('')
+    chars.forEach((c, i) => {
+      if (index + i < 6) {
+        otpDigits.value[index + i] = c
+      }
+    })
+    const nextIdx = Math.min(index + chars.length, 5)
+    inputRefs.value[nextIdx]?.focus()
+    return
+  }
+
+  otpDigits.value[index] = val
+
+  if (val && index < 5) {
+    inputRefs.value[index + 1]?.focus()
+  }
+
+  // Jika 6 digit terisi penuh, otomatis verifikasi
+  if (otpKode.value.length === 6 && !isLoading.value) {
+    handleVerifyOtp()
+  }
+}
+
+// Handler Navigasi Keyboard
+const onKeyDown = (index, event) => {
+  if (event.key === 'Backspace') {
+    if (!otpDigits.value[index] && index > 0) {
+      otpDigits.value[index - 1] = ''
+      inputRefs.value[index - 1]?.focus()
+    } else {
+      otpDigits.value[index] = ''
+    }
+  } else if (event.key === 'ArrowLeft' && index > 0) {
+    inputRefs.value[index - 1]?.focus()
+  } else if (event.key === 'ArrowRight' && index < 5) {
+    inputRefs.value[index + 1]?.focus()
+  }
+}
+
+// Handler Paste kode OTP dari Clipboard
+const onPaste = (event) => {
+  event.preventDefault()
+  const pastedData = (event.clipboardData || window.clipboardData)
+    .getData('text')
+    .replace(/\D/g, '')
+    .slice(0, 6)
+
+  if (!pastedData) return
+
+  const digits = pastedData.split('')
+  for (let i = 0; i < 6; i++) {
+    otpDigits.value[i] = digits[i] || ''
+  }
+
+  const focusIndex = Math.min(pastedData.length, 5)
+  inputRefs.value[focusIndex]?.focus()
+
+  if (otpKode.value.length === 6 && !isLoading.value) {
+    handleVerifyOtp()
   }
 }
 </script>
 
 <template>
-  <div class="public-container">
-    <div class="landing-card">
-      <div class="brand">
-        <img src="../../assets/logo-kementan.png" alt="Logo Kementan" class="brand-logo" />
-        <h2>BRMP BIOGEN</h2>
-        <p class="brand-sub">Verifikasi Kode Pengamanan</p>
-      </div>
-
-      <h1 class="page-title">Verifikasi OTP</h1>
+  <div class="portal-page">
+    <div class="portal-card-wrapper">
       
-      <div class="info-box">
-        <div class="info-row">
-          <span class="info-label">Nomor Pengujian</span>
-          <span class="info-value text-primary">{{ nomorPengujian }}</span>
+      <!-- SISI KIRI: BRANDING & KEAMANAN AKSES (KONSISTEN DENGAN CARI PENGUJIAN) -->
+      <div class="branding-pane">
+        <div class="pane-content">
+          <!-- Logo & Nama Instansi -->
+          <div class="brand-header">
+            <img src="../../assets/logo-kementan.png" alt="Logo Kementerian Pertanian" class="kementan-logo" />
+            <div class="brand-text">
+              <span class="ministry-tag">KEMENTERIAN PERTANIAN</span>
+              <span class="agency-title">BRMP BIOGEN</span>
+            </div>
+          </div>
+
+          <!-- Headline Ringkas -->
+          <div class="hero-text-block">
+            <h1 class="portal-heading">Verifikasi Keamanan Akses</h1>
+            <p class="portal-subheading">
+              Sistem perlindungan kode OTP menjamin dokumen laporan hasil pengujian hanya dapat diakses oleh pemohon yang sah.
+            </p>
+          </div>
+
+          <!-- 3 Poin Keamanan -->
+          <div class="feature-pills">
+            <div class="feature-pill">
+              <Lock :size="18" class="pill-icon" />
+              <span>Kode OTP 6 Digit Dinamis</span>
+            </div>
+            <div class="feature-pill">
+              <Mail :size="18" class="pill-icon" />
+              <span>Terkirim Langsung ke Email Resmi</span>
+            </div>
+            <div class="feature-pill">
+              <ShieldCheck :size="18" class="pill-icon" />
+              <span>Kepatuhan Standar Privasi Data</span>
+            </div>
+          </div>
         </div>
-        <div class="info-row">
-          <span class="info-label">Email Pemohon</span>
-          <span class="info-value">{{ emailTersamar }}</span>
+
+        <!-- Footer Ganti Nomor -->
+        <div class="pane-footer">
+          <span class="pane-footer-text">Salah memasukkan nomor pengujian?</span>
+          <router-link :to="{ name: 'CariPengujian' }" class="change-link">
+            <ArrowLeft :size="13" class="change-link-icon" />
+            <span>Ganti Nomor</span>
+          </router-link>
         </div>
       </div>
 
-      <div v-if="errorMessage" class="alert alert-danger">
-        <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
-      </div>
+      <!-- SISI KANAN: FORM VERIFIKASI OTP INTERAKTIF -->
+      <div class="otp-pane">
+        <div class="otp-box-content">
+          
+          <!-- Step Indicator Ringkas -->
+          <div class="step-indicator-bar">
+            <span class="step-badge">Langkah 2 dari 3</span>
+            <span class="step-label">Verifikasi Kode Pengamanan</span>
+          </div>
 
-      <div v-if="successMessage" class="alert alert-success">
-        <CheckCircle2 :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ successMessage }}
-      </div>
+          <!-- Judul Form -->
+          <div class="form-title-group">
+            <h2 class="form-title">Verifikasi Identitas</h2>
+            <p class="form-desc">
+              Kode verifikasi keamanan dikirimkan ke alamat email pemohon yang terdaftar.
+            </p>
+          </div>
 
-      <!-- Step 1: Kirim OTP -->
-      <div v-if="!isOtpSent" class="action-box">
-        <p class="step-desc">Demi alasan keamanan dan pelindungan data pribadi pemohon, kami perlu mengirimkan kode keamanan OTP ke email yang terdaftar pada sampel pengujian ini.</p>
-        <button @click="handleSendOtp" class="btn-primary btn-full" :disabled="isLoading">
-          <span v-if="isLoading">Mengirim Kode...</span>
-          <span v-else class="flex-icon-center"><Send :size="16" /> Kirim Kode OTP</span>
-        </button>
-      </div>
+          <!-- Info Box: Nomor & Email -->
+          <div class="target-info-card">
+            <div class="info-item">
+              <span class="info-label">Nomor Pengujian</span>
+              <div class="info-val-row">
+                <span class="info-val-badge">{{ nomorPengujian }}</span>
+                <!-- <router-link :to="{ name: 'CariPengujian' }" class="btn-change-number" title="Ubah Nomor Pengujian">
+                  <ArrowLeft :size="11" />
+                  <span>Ganti</span>
+                </router-link> -->
+              </div>
+            </div>
+            <div class="info-divider"></div>
+            <div class="info-item">
+              <span class="info-label">Email Terdaftar</span>
+              <span class="info-val-email">{{ emailTersamar }}</span>
+            </div>
+          </div>
 
-      <!-- Step 2: Input OTP -->
-      <form v-else @submit.prevent="handleVerifyOtp" class="otp-form">
-        <p class="step-desc">Masukkan 6 digit kode OTP yang kami kirimkan ke email Anda. Kode ini berlaku selama 10 menit.</p>
-        
-        <div class="form-group">
-          <input 
-            type="text" 
-            v-model="otpKode" 
-            maxlength="6" 
-            placeholder="0 0 0 0 0 0" 
-            class="otp-input"
-            required
-            pattern="[0-9]{6}"
-            inputmode="numeric"
-            :disabled="isLoading"
-          />
+          <!-- Alert Error & Success -->
+          <div v-if="errorMessage" class="alert-error">
+            <AlertTriangle :size="18" class="alert-icon" />
+            <span>{{ errorMessage }}</span>
+          </div>
+
+          <div v-if="successMessage" class="alert-success">
+            <CheckCircle2 :size="18" class="alert-icon" />
+            <span>{{ successMessage }}</span>
+          </div>
+
+          <!-- STEP 1: Belum Kirim OTP -->
+          <div v-if="!isOtpSent" class="otp-initial-box">
+            <p class="initial-instruction">
+              Demi keamanan dan pelindungan data hasil uji, silakan klik tombol di bawah untuk mengirim kode OTP ke email Anda.
+            </p>
+            <button 
+              type="button" 
+              @click="handleSendOtp" 
+              class="submit-action-btn" 
+              :disabled="isLoading"
+            >
+              <span v-if="isLoading" class="loading-state-box">
+                <span class="spinner-ring"></span>
+                <span>Mengirim Kode OTP...</span>
+              </span>
+              <span v-else class="btn-text-wrap">
+                <Send :size="16" />
+                <span>Kirim Kode OTP ke Email</span>
+              </span>
+            </button>
+          </div>
+
+          <!-- STEP 2: Input 6-Digit OTP Box -->
+          <form v-else @submit.prevent="handleVerifyOtp" class="main-form">
+            <div class="form-field">
+              <label class="otp-input-label">Masukkan 6 Digit Kode OTP</label>
+              
+              <!-- 6-Segmented Input Boxes -->
+              <div class="otp-segmented-wrapper" @paste="onPaste">
+                <input 
+                  v-for="(digit, index) in otpDigits" 
+                  :key="index"
+                  :ref="el => inputRefs[index] = el"
+                  type="text" 
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  maxlength="1"
+                  :value="digit"
+                  @input="onDigitInput(index, $event)"
+                  @keydown="onKeyDown(index, $event)"
+                  class="otp-digit-cell"
+                  :class="{ 'filled': digit !== '' }"
+                  :disabled="isLoading"
+                  autocomplete="one-time-code"
+                />
+              </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button 
+              type="submit" 
+              class="submit-action-btn" 
+              :disabled="isLoading || otpKode.length !== 6"
+            >
+              <span v-if="isLoading" class="loading-state-box">
+                <span class="spinner-ring"></span>
+                <span>Memverifikasi Kode...</span>
+              </span>
+              <span v-else class="btn-text-wrap">
+                <Check :size="18" />
+                <span>Verifikasi &amp; Lanjutkan</span>
+              </span>
+            </button>
+
+            <!-- Cooldown / Resend Button -->
+            <div class="cooldown-row">
+              <span v-if="cooldownTime > 0" class="cooldown-active">
+                <Clock :size="14" />
+                <span>Kirim ulang kode dalam <strong>{{ formatTime(cooldownTime) }}</strong></span>
+              </span>
+              <button 
+                v-else 
+                type="button" 
+                @click="handleSendOtp" 
+                class="resend-action-btn" 
+                :disabled="isLoading"
+              >
+                <RefreshCw :size="14" />
+                <span>Kirim Ulang Kode OTP</span>
+              </button>
+            </div>
+          </form>
+
+          <!-- Security Note -->
+          <div class="card-security-note">
+            <ShieldCheck :size="14" />
+            <span>Kode verifikasi berlaku 10 menit &bull; BRMP Biogen</span>
+          </div>
+
         </div>
+      </div>
 
-        <button type="submit" class="btn-primary btn-full" :disabled="isLoading">
-          <span v-if="isLoading">Memverifikasi...</span>
-          <span v-else class="flex-icon-center"><Check :size="16" /> Verifikasi &amp; Lanjutkan</span>
-        </button>
-
-        <div class="cooldown-area">
-          <span v-if="cooldownTime > 0" class="cooldown-text">
-            Kirim ulang kode dalam <strong>{{ cooldownTime }} detik</strong>
-          </span>
-          <button 
-            v-else 
-            type="button" 
-            @click="handleSendOtp" 
-            class="btn-text flex-icon-center" 
-            :disabled="isLoading"
-          >
-            <RefreshCw :size="14" /> Kirim Ulang OTP
-          </button>
-        </div>
-      </form>
-
-      <button @click="router.push({ name: 'CariPengujian' })" class="btn-back" :disabled="isLoading">
-        ← Ganti Nomor Pengujian
-      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.public-container {
+/* Base Page Setup */
+.portal-page {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 10% 20%, rgba(243, 244, 246, 1) 0%, rgba(229, 231, 235, 1) 90%);
-  padding: 20px;
+  padding: 32px 20px;
+  background-color: #f8fafc;
+  background-image: radial-gradient(at 100% 0%, rgba(27, 77, 62, 0.04) 0px, transparent 50%),
+                    radial-gradient(at 0% 100%, rgba(234, 179, 8, 0.05) 0px, transparent 50%);
+  font-family: var(--font-sans);
+  box-sizing: border-box;
 }
 
-.landing-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px);
-  border-radius: 24px;
+/* Split-Screen Master Container */
+.portal-card-wrapper {
   width: 100%;
-  max-width: 480px;
-  padding: 40px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  animation: cardEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 1040px;
+  min-height: 560px;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06), 0 4px 12px -2px rgba(15, 23, 42, 0.03);
+  border: 1px solid #e2e8f0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
 }
 
-@keyframes cardEnter {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+/* =========================================================
+   SISI KIRI: BRANDING MINIMALIS
+   ========================================================= */
+.branding-pane {
+  background: linear-gradient(155deg, #1B4D3E 0%, #13392E 100%);
+  color: #ffffff;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
 }
 
-.brand {
-  text-align: center;
-  margin-bottom: 24px;
+.branding-pane::after {
+  content: '';
+  position: absolute;
+  top: -80px;
+  right: -80px;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, rgba(234, 179, 8, 0.15) 0%, transparent 70%);
+  pointer-events: none;
 }
 
-.brand-logo {
-  height: 64px;
+.pane-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  position: relative;
+  z-index: 1;
+}
+
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.kementan-logo {
+  height: 52px;
+  width: auto;
   object-fit: contain;
-  display: inline-block;
-  margin-bottom: 8px;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2));
 }
 
-.brand h2 {
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.ministry-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+}
+
+.agency-title {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+}
+
+.hero-text-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.portal-heading {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #ffffff;
   margin: 0;
-  font-size: 20px;
+  letter-spacing: -0.4px;
+}
+
+.portal-subheading {
+  font-size: 14.5px;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Feature Pills */
+.feature-pills {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.feature-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(4px);
+}
+
+.pill-icon {
+  color: #facc15;
+  flex-shrink: 0;
+}
+
+.pane-footer {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: 16px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.pane-footer-text {
+  display: inline-flex;
+  align-items: center;
+}
+
+.change-link {
+  color: #facc15;
+  text-decoration: none;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(250, 204, 21, 0.1);
+  border: 1px solid rgba(250, 204, 21, 0.22);
+  transition: all 0.2s ease;
+}
+
+.change-link:hover {
+  background: rgba(250, 204, 21, 0.2);
+  color: #fef08a;
+  border-color: rgba(250, 204, 21, 0.35);
+}
+
+.change-link-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   SISI KANAN: FORM VERIFIKASI OTP
+   ========================================================= */
+.otp-pane {
+  padding: 48px 44px;
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+}
+
+.otp-box-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* Step Indicator */
+.step-indicator-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.step-badge {
+  background: rgba(27, 77, 62, 0.1);
+  color: #1B4D3E;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.step-label {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* Form Title Group */
+.form-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-title {
+  font-size: 23px;
   font-weight: 800;
   color: #0f172a;
-  letter-spacing: 1px;
+  margin: 0;
+  letter-spacing: -0.3px;
 }
 
-.brand-sub {
-  margin: 4px 0 0 0;
+.form-desc {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Target Info Card */
+.target-info-card {
+  display: flex;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  gap: 14px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.info-label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 20px 0;
-  text-align: center;
-}
-
-.info-box {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  padding: 16px;
-  border-radius: 12px;
+.info-val-row {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
+  gap: 8px;
 }
 
-.info-label {
-  color: #64748b;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.info-value {
-  color: #1e293b;
-  font-weight: 600;
-  word-break: break-all;
-  text-align: right;
-}
-
-.info-value.text-primary {
+.info-val-badge {
+  font-size: 14px;
+  font-weight: 800;
   color: #1B4D3E;
+  letter-spacing: 0.3px;
 }
 
-.alert {
-  padding: 12px 16px;
-  border-radius: 10px;
+.btn-change-number {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1B4D3E;
+  background: rgba(27, 77, 62, 0.08);
+  border: 1px solid rgba(27, 77, 62, 0.2);
+  padding: 2px 7px;
+  border-radius: 6px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.2s ease;
+  line-height: 1.2;
+}
+
+.btn-change-number:hover {
+  background: rgba(27, 77, 62, 0.15);
+  color: #13392E;
+  border-color: #1B4D3E;
+}
+
+.info-val-email {
   font-size: 13px;
-  line-height: 1.5;
-  margin-bottom: 20px;
+  font-weight: 600;
+  color: #334155;
+  font-family: var(--font-mono);
 }
 
-.alert-danger {
+.info-divider {
+  width: 1px;
+  height: 28px;
+  background: #cbd5e1;
+}
+
+/* Alerts */
+.alert-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: #fef2f2;
-  border: 1px solid #fecaca;
+  border: 1px solid #fee2e2;
   color: #991b1b;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.4;
 }
 
 .alert-success {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  border: 1px solid #dcfce7;
   color: #166534;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.4;
 }
 
-.action-box {
+.alert-icon {
+  flex-shrink: 0;
+}
+
+/* Step 1 Initial Box */
+.otp-initial-box {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.step-desc {
-  font-size: 13px;
-  color: #64748b;
+.initial-instruction {
+  font-size: 13.5px;
+  color: #475569;
   line-height: 1.6;
-  text-align: center;
-  margin: 0 0 16px 0;
+  margin: 0;
 }
 
-.otp-form {
+/* Step 2 Form */
+.main-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.otp-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 14px 10px;
-  border: 1.5px solid #cbd5e1;
-  border-radius: 12px;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: 10px;
-  text-align: center;
-  color: #1e293b;
-  outline: none;
-  background: #f8fafc;
-  transition: all 0.2s ease;
-}
-
-.otp-input::placeholder {
-  letter-spacing: 6px;
-  color: #cbd5e1;
-}
-
-.otp-input:focus {
-  background: #ffffff;
-  border-color: #1B4D3E;
-  box-shadow: 0 0 0 4px rgba(27, 77, 62, 0.15);
-}
-
-.btn-primary {
-  background: #1B4D3E;
-  color: white;
-  border: none;
-  padding: 14px;
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(27, 77, 62, 0.25);
-  transition: all 0.2s ease;
+.form-field {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: #13382D;
-  transform: translateY(-1px);
-}
-
-.btn-primary:disabled {
-  background: #94a3b8;
-  box-shadow: none;
-  cursor: not-allowed;
-}
-
-.cooldown-area {
-  text-align: center;
-  margin-top: 4px;
-}
-
-.cooldown-text {
-  font-size: 13px;
-  color: #64748b;
-}
-
-.btn-text {
-  background: none;
-  border: none;
-  color: #1B4D3E;
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0;
-  transition: color 0.2s ease;
-}
-
-.btn-text:hover {
-  color: #13382D;
-  text-decoration: underline;
-}
-
-.btn-back {
-  background: none;
-  border: none;
-  color: #64748b;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  margin-top: 24px;
-  width: 100%;
-  text-align: center;
-  transition: color 0.2s ease;
-}
-
-.btn-back:hover {
+.otp-input-label {
+  font-size: 13.5px;
+  font-weight: 700;
   color: #1e293b;
 }
 
-.flex-icon-center {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* 6-Segmented OTP Container */
+.otp-segmented-wrapper {
+  display: flex;
+  justify-content: space-between;
   gap: 8px;
 }
 
-@media (max-width: 640px) {
-  .public-container {
+.otp-digit-cell {
+  width: 50px;
+  height: 56px;
+  border: 1.8px solid #cbd5e1;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  background: #f8fafc;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+.otp-digit-cell:focus {
+  background: #ffffff;
+  border-color: #1B4D3E;
+  box-shadow: 0 0 0 3px rgba(27, 77, 62, 0.15);
+  transform: translateY(-2px);
+}
+
+.otp-digit-cell.filled {
+  border-color: #1B4D3E;
+  background: #ffffff;
+  color: #1B4D3E;
+}
+
+/* Action Primary Button */
+.submit-action-btn {
+  background: #1B4D3E;
+  color: #ffffff;
+  border: none;
+  padding: 14px 20px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(27, 77, 62, 0.25);
+  width: 100%;
+}
+
+.submit-action-btn:hover:not(:disabled) {
+  background: #13392E;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(27, 77, 62, 0.35);
+}
+
+.submit-action-btn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-text-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading-state-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spinner-ring {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Cooldown Area */
+.cooldown-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+}
+
+.cooldown-active {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.cooldown-active strong {
+  color: #0f172a;
+}
+
+.resend-action-btn {
+  background: none;
+  border: none;
+  color: #1B4D3E;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.resend-action-btn:hover {
+  background: rgba(27, 77, 62, 0.08);
+  text-decoration: underline;
+}
+
+/* Card Security Note */
+.card-security-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #94a3b8;
+  padding-top: 6px;
+}
+
+/* =========================================================
+   RESPONSIVE LAYOUT (TABLET & MOBILE)
+   ========================================================= */
+@media (max-width: 900px) {
+  .portal-card-wrapper {
+    grid-template-columns: 1fr;
+    max-width: 520px;
+    min-height: auto;
+  }
+
+  .branding-pane {
+    padding: 32px 28px;
+    gap: 20px;
+  }
+
+  .portal-heading {
+    font-size: 22px;
+  }
+
+  .portal-subheading {
+    font-size: 13.5px;
+  }
+
+  .feature-pills {
+    display: none;
+  }
+
+  .otp-pane {
+    padding: 36px 28px;
+  }
+
+  .form-title {
+    font-size: 20px;
+  }
+
+  .otp-digit-cell {
+    width: 44px;
+    height: 50px;
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .portal-page {
     padding: 16px 12px;
   }
-  .landing-card {
-    padding: 24px 18px;
-    border-radius: 20px;
+
+  .branding-pane {
+    padding: 24px 20px;
   }
-  .brand {
-    margin-bottom: 16px;
+
+  .otp-pane {
+    padding: 28px 20px;
   }
-  .brand-logo {
-    height: 52px;
+
+  .agency-title {
+    font-size: 17px;
   }
-  .page-title {
+
+  .target-info-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .info-divider {
+    display: none;
+  }
+
+  .otp-digit-cell {
+    width: 38px;
+    height: 46px;
     font-size: 18px;
+    border-radius: 8px;
   }
-  .otp-input {
-    font-size: 18px;
-    letter-spacing: 6px;
-    padding: 12px 6px;
+
+  .submit-action-btn {
+    padding: 13px;
+    font-size: 14px;
   }
 }
 </style>

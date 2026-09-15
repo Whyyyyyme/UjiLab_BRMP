@@ -173,7 +173,10 @@ class PublicPengujianController extends Controller
             'status' => $pengujian->status,
             'skm_diisi' => $skmDiisi,
             'file_laporan_ready' => !is_null($pengujian->file_laporan),
-            'file_sertifikat_ready' => !is_null($pengujian->file_sertifikat)
+            'versi' => $pengujian->versi ?? 1,
+            'hash_laporan' => $pengujian->hash_laporan,
+            'tanggal_selesai' => ($pengujian->status === 'selesai' && $pengujian->updated_at) ? $pengujian->updated_at->format('Y-m-d H:i') : null,
+            'tanggal_masuk' => $pengujian->created_at ? $pengujian->created_at->format('Y-m-d') : null,
         ]);
     }
 

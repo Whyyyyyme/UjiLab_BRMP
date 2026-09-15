@@ -11,11 +11,13 @@ class SkmExport implements FromCollection, WithHeadings, WithMapping
 {
     protected ?int $bulan;
     protected ?int $tahun;
+    protected ?int $triwulan;
 
-    public function __construct(?int $bulan = null, ?int $tahun = null)
+    public function __construct(?int $bulan = null, ?int $tahun = null, ?int $triwulan = null)
     {
         $this->bulan = $bulan;
         $this->tahun = $tahun;
+        $this->triwulan = $triwulan;
     }
 
     /**
@@ -27,7 +29,15 @@ class SkmExport implements FromCollection, WithHeadings, WithMapping
             ->join('pengujian', 'skm.pengujian_id', '=', 'pengujian.id')
             ->where('pengujian.is_deleted', false);
 
-        if ($this->bulan) {
+        if ($this->triwulan) {
+            $startMonth = ($this->triwulan - 1) * 3 + 1;
+            $endMonth = $this->triwulan * 3;
+            $query->where(function ($q) use ($startMonth, $endMonth) {
+                for ($m = $startMonth; $m <= $endMonth; $m++) {
+                    $q->orWhereMonth('skm.tanggal_isi', $m);
+                }
+            });
+        } elseif ($this->bulan) {
             $query->whereMonth('skm.tanggal_isi', $this->bulan);
         }
 

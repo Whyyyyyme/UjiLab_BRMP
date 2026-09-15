@@ -10,7 +10,7 @@ import {
   Mail, 
   Plus, 
   ClipboardList, 
-  Users,
+  Settings,
   Sparkles
 } from '@lucide/vue'
 
@@ -48,8 +48,8 @@ onMounted(() => {
     <!-- Welcome Banner -->
     <div class="welcome-banner">
       <div class="banner-text">
-        <h1>Selamat Datang Kembali, {{ authStore.user?.nama || 'Petugas' }}! <Sparkles :size="24" style="color: #EAB308; display: inline-block; vertical-align: middle; margin-left: 6px;" /></h1>
-        <p>Kelola dan pantau proses distribusi hasil uji laboratorium BRMP Biogen hari ini.</p>
+        <h1>Selamat Datang Kembali, {{ authStore.user?.nama || 'Administrator' }}! <Sparkles :size="24" style="color: #EAB308; display: inline-block; vertical-align: middle; margin-left: 6px;" /></h1>
+        <p>Kelola dan pantau proses pengujian laboratorium BRMP Biogen hari ini.</p>
       </div>
       <div class="banner-bg">
         <img src="../../assets/logo-kementan.png" alt="" aria-hidden="true" class="banner-logo-img" />
@@ -61,9 +61,9 @@ onMounted(() => {
       <span class="alert-icon"><AlertTriangle :size="20" /></span>
       <div class="alert-content">
         <h4>Notifikasi Email Gagal Terkirim!</h4>
-        <p>Ada <strong>{{ stats.notifikasi_gagal }}</strong> email hasil uji yang gagal terkirim setelah 3 kali percobaan otomatis. Mohon periksa log email.</p>
+        <p>Terdapat <strong>{{ stats.notifikasi_gagal }}</strong> notifikasi email hasil uji yang belum berhasil terkirim. Mohon periksa log notifikasi email.</p>
       </div>
-      <router-link :to="{ name: 'LaporanSkm' }" class="btn-alert">Periksa</router-link>
+      <router-link :to="{ name: 'DataPengujian' }" class="btn-alert">Periksa Data Pengujian</router-link>
     </div>
 
     <div class="stats-grid">
@@ -78,7 +78,7 @@ onMounted(() => {
       <div class="stat-card">
         <div class="stat-icon yellow"><Clock :size="24" /></div>
         <div class="stat-info">
-          <span class="stat-label">Dalam Proses</span>
+          <span class="stat-label">Menunggu Unggah Berkas</span>
           <h2 class="stat-value">{{ stats.diproses }}</h2>
         </div>
       </div>
@@ -86,7 +86,7 @@ onMounted(() => {
       <div class="stat-card">
         <div class="stat-icon green"><CheckCircle2 :size="24" /></div>
         <div class="stat-info">
-          <span class="stat-label">Selesai &amp; Siap</span>
+          <span class="stat-label">Selesai &amp; Terverifikasi</span>
           <h2 class="stat-value">{{ stats.selesai }}</h2>
         </div>
       </div>
@@ -94,7 +94,7 @@ onMounted(() => {
       <div class="stat-card">
         <div class="stat-icon red"><Mail :size="24" /></div>
         <div class="stat-info">
-          <span class="stat-label">Gagal Kirim Email</span>
+          <span class="stat-label">Gagal Notifikasi Email</span>
           <h2 class="stat-value">{{ stats.notifikasi_gagal }}</h2>
         </div>
       </div>
@@ -106,35 +106,44 @@ onMounted(() => {
         <h3>Aksi Cepat</h3>
         <div class="actions-grid">
           <router-link :to="{ name: 'DataPengujian' }" class="action-btn">
-            <span class="action-icon"><Plus :size="22" /></span>
+            <span class="action-icon brand"><Plus :size="22" /></span>
             <div class="action-info">
               <h4>Tambah Data Pengujian</h4>
-              <p>Input nomor pengujian baru dan upload file PDF.</p>
+              <p>Input nomor pengujian baru dan unggah dokumen hasil uji.</p>
             </div>
           </router-link>
           
           <router-link :to="{ name: 'LaporanSkm' }" class="action-btn">
-            <span class="action-icon"><ClipboardList :size="22" /></span>
+            <span class="action-icon amber"><ClipboardList :size="22" /></span>
             <div class="action-info">
               <h4>Laporan SKM &amp; IKM</h4>
-              <p>Unduh laporan bulanan survei kepuasan pelanggan.</p>
+              <p>Lihat dan unduh rekapitulasi Survei Kepuasan Masyarakat.</p>
             </div>
           </router-link>
 
-          <router-link v-if="authStore.isAdmin" :to="{ name: 'ManajemenAkun' }" class="action-btn">
-            <span class="action-icon"><Users :size="22" /></span>
+          <router-link :to="{ name: 'PengaturanSistem' }" class="action-btn">
+            <span class="action-icon blue"><Settings :size="22" /></span>
             <div class="action-info">
-              <h4>Kelola Akun Petugas</h4>
-              <p>Tambah, nonaktifkan, atau reset password petugas lab.</p>
+              <h4>Pengaturan Sistem &amp; Profil</h4>
+              <p>Kelola profil administrator, serta kata sandi akun.</p>
             </div>
           </router-link>
         </div>
       </div>
 
-      <!-- Recent Log Activity (Khusus Admin) -->
-      <div v-if="authStore.isAdmin" class="content-card recent-activity">
+      <!-- Recent Log Activity -->
+      <div class="content-card recent-activity">
         <h3>Aktivitas Terkini</h3>
-        <div v-if="isLoading" class="loading-state">Memuat aktivitas...</div>
+        <div v-if="isLoading" class="logs-list">
+          <div v-for="n in 3" :key="n" class="log-item" style="opacity: 0.7;">
+            <div class="skeleton-circle" style="width: 10px; height: 10px; margin-top: 6px;"></div>
+            <div class="log-details" style="width: 100%;">
+              <div class="skeleton-bar" style="width: 70%; height: 14px; margin-bottom: 6px;"></div>
+              <div class="skeleton-bar" style="width: 40%; height: 12px;"></div>
+            </div>
+          </div>
+        </div>
+
         <div v-else-if="recentLogs.length === 0" class="empty-state">
           <p>Belum ada aktivitas tercatat hari ini.</p>
         </div>
@@ -273,17 +282,35 @@ onMounted(() => {
 .stat-icon {
   width: 54px;
   height: 54px;
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 24px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
 }
 
-.stat-icon.blue { background: #eff6ff; }
-.stat-icon.yellow { background: #fefce8; }
-.stat-icon.green { background: #f0fdf4; }
-.stat-icon.red { background: #fef2f2; }
+.stat-card:hover .stat-icon {
+  transform: scale(1.05);
+}
+
+.stat-icon.blue { 
+  background: rgba(37, 99, 235, 0.1); 
+  color: #2563eb;
+}
+.stat-icon.yellow { 
+  background: rgba(217, 119, 6, 0.1); 
+  color: #d97706;
+}
+.stat-icon.green { 
+  background: rgba(27, 77, 62, 0.1); 
+  color: #1B4D3E;
+}
+.stat-icon.red { 
+  background: rgba(220, 38, 38, 0.1); 
+  color: #dc2626;
+}
 
 .stat-info {
   display: flex;
@@ -299,8 +326,8 @@ onMounted(() => {
 .stat-value {
   margin: 4px 0 0 0;
   font-size: 24px;
-  font-weight: 700;
-  color: #1e293b;
+  font-weight: 800;
+  color: #0f172a;
 }
 
 .dashboard-content-layout {
@@ -319,15 +346,15 @@ onMounted(() => {
   background: #ffffff;
   padding: 24px;
   border-radius: 16px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02), 0 10px 15px -3px rgba(0, 0, 0, 0.03);
-  border: 1px solid #f1f5f9;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  border: 1px solid #e2e8f0;
 }
 
 .content-card h3 {
   margin: 0 0 20px 0;
   font-size: 16px;
-  font-weight: 600;
-  color: #1e293b;
+  font-weight: 700;
+  color: #0f172a;
   border-bottom: 1px solid #f1f5f9;
   padding-bottom: 12px;
 }
@@ -343,41 +370,61 @@ onMounted(() => {
   align-items: center;
   gap: 16px;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #f8fafc;
   text-decoration: none;
-  border: 1px solid #f1f5f9;
+  border: 1.5px solid #e2e8f0;
   transition: all 0.2s ease;
 }
 
 .action-btn:hover {
-  background: #f1f5f9;
+  background: #ffffff;
+  border-color: #1B4D3E;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 8px 20px rgba(27, 77, 62, 0.08);
 }
 
 .action-icon {
   font-size: 24px;
-  background: #ffffff;
   width: 48px;
   height: 48px;
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.action-icon.brand {
+  background: rgba(27, 77, 62, 0.1);
+  color: #1B4D3E;
+}
+
+.action-icon.amber {
+  background: rgba(217, 119, 6, 0.1);
+  color: #d97706;
+}
+
+.action-icon.blue {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+
+.action-btn:hover .action-icon {
+  transform: scale(1.08);
 }
 
 .action-info h4 {
   margin: 0 0 4px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #1e293b;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .action-info p {
   margin: 0;
-  font-size: 12px;
+  font-size: 13.5px;
   color: #64748b;
   line-height: 1.4;
 }
@@ -386,7 +433,7 @@ onMounted(() => {
   padding: 30px;
   text-align: center;
   color: #64748b;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .logs-list {
@@ -417,13 +464,13 @@ onMounted(() => {
 
 .log-message {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   color: #334155;
   line-height: 1.4;
 }
 
 .log-time {
-  font-size: 11px;
+  font-size: 12.5px;
   color: #64748b;
   margin-top: 4px;
 }

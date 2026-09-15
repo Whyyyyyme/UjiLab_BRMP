@@ -8,8 +8,8 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     isAuthenticated: (state) => !!state.token,
-    isAdmin: (state) => state.user?.role === 'admin',
-    role: (state) => state.user?.role || null,
+    isAdmin: (state) => !!state.token,
+    role: (state) => 'admin',
   },
   actions: {
     setToken(token) {
@@ -36,6 +36,18 @@ export const useAuthStore = defineStore('auth', {
       } catch (error) {
         this.clearAuth()
         const message = error.response?.data?.message || 'Login gagal. Silakan coba lagi.'
+        return { success: false, message }
+      }
+    },
+    async updateProfile(payload) {
+      try {
+        const response = await api.put('/api/admin/profil', payload)
+        if (response.data.user) {
+          this.setUser(response.data.user)
+        }
+        return { success: true, message: response.data.message }
+      } catch (error) {
+        const message = error.response?.data?.message || 'Gagal memperbarui profil.'
         return { success: false, message }
       }
     },

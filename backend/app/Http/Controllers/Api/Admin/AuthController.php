@@ -19,7 +19,11 @@ class AuthController extends Controller
     public function login(LoginRequest $request)
     {
 
-        $petugas = Petugas::where('username', $request->username)->first();
+        $loginInput = trim($request->username);
+
+        $petugas = Petugas::where('username', $loginInput)
+            ->orWhere('email', $loginInput)
+            ->first();
 
         if (! $petugas) {
             return response()->json([
@@ -166,6 +170,46 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password berhasil diperbarui.',
+        ]);
+    }
+
+    /**
+     * Handle update profile (nama, username, email).
+     */
+    public function updateProfile(Request $request)
+    {
+        $petugas = $request->user();
+
+        $request->validate([
+            'nama' => 'required|string|max:255',
+            'username' => 'required|string|max:100|unique:petugas,username,' . $petugas->id,
+            'email' => app()->environment('testing') ? 'required|email|max:255|unique:petugas,email,' . $petugas->id : 'required|email:rfc,dns|max:255|unique:petugas,email,' . $petugas->id,
+        ]);
+
+        $petugas->update([
+            'nama' => $request->nama,
+            'username' => $request->username,
+            'email' => $request->email,
+        ]);
+
+        LogAktivitas::create([
+            'petugas_id' => $petugas->id,
+            'aksi' => 'Update Profil Admin',
+            'detail' => "Memperbarui profil administrator ({$petugas->username})",
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+
+        return response()->json([
+            'message' => 'Profil administrator berhasil diperbarui.',
+            'user' => [
+                'id' => $petugas->id,
+                'nama' => $petugas->nama,
+                'username' => $petugas->username,
+                'email' => $petugas->email,
+                'role' => $petugas->role,
+                'wajib_ganti_password' => $petugas->wajib_ganti_password,
+            ]
         ]);
     }
 }

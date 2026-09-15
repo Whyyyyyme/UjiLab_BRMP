@@ -1,9 +1,9 @@
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../../services/api'
 import { useAuthStore } from '../../stores/auth'
-import { AlertTriangle, CheckCircle2, Search, Plus, Upload, Edit, Mail, Trash2, FileText, Loader2, Download, RotateCcw, ChevronLeft, ChevronRight, FileQuestion } from '@lucide/vue'
+import { AlertTriangle, CheckCircle2, Search, Plus, Upload, Edit, Trash2, FileText, Loader2, Download, RotateCcw, ChevronLeft, ChevronRight, FileQuestion, X, Eye, EyeOff, ExternalLink, Mail } from '@lucide/vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -66,7 +66,6 @@ const years = computed(() => {
 // State Modals
 const showAddModal = ref(false)
 const showEditModal = ref(false)
-const showEmailModal = ref(false)
 
 // Form States
 const form = ref({
@@ -75,11 +74,6 @@ const form = ref({
   nama_pemohon: '',
   email_pemohon: '',
   jenis_pengujian: ''
-})
-const emailForm = ref({
-  id: null,
-  nomor_pengujian: '',
-  email_pemohon: ''
 })
 
 const errorMessage = ref('')
@@ -95,7 +89,8 @@ const jenisPengujianList = [
   'Liofilisasi',
   'Enumerasi Total Mikroba Bakteri/Cendawan',
   'Deteksi Mikroba secara Molekuler (Bakteri/Cendawan)',
-  'Uji Sensitivitas Bakteri'
+  'Uji Sensitivitas Bakteri',
+  'Pengujian Lainnya'
 ]
 
 // Fetch Data
@@ -214,10 +209,19 @@ const resetFilters = () => {
   fetchData(1)
 }
 
+// Clear Search Input (UX 2 C)
+const clearSearch = () => {
+  searchCari.value = ''
+  fetchData(1)
+}
+
 // Add Pengujian State & Logic
 const fileLaporan = ref(null)
 const isParsing = ref(false)
+const isSaving = ref(false)
 const extractionMethod = ref('')
+const addPdfPreviewUrl = ref('')
+const showAddPdfPreview = ref(false)
 const autofilledFields = ref({
   nomor_pengujian: false,
   nama_pemohon: false,
@@ -231,6 +235,12 @@ const handlePdfFileChange = async (event, type) => {
 
   if (type === 'laporan') {
     fileLaporan.value = file
+    // Generate URL objek lokal instan untuk pratinjau PDF langsung di browser
+    if (addPdfPreviewUrl.value) {
+      window.URL.revokeObjectURL(addPdfPreviewUrl.value)
+    }
+    addPdfPreviewUrl.value = window.URL.createObjectURL(file)
+    showAddPdfPreview.value = true
   }
 
   isParsing.value = true
@@ -273,6 +283,32 @@ const handlePdfFileChange = async (event, type) => {
   }
 }
 
+const openAddPdfInNewTab = () => {
+  if (addPdfPreviewUrl.value) {
+    window.open(addPdfPreviewUrl.value, '_blank')
+  }
+}
+
+const removeAddFileLaporan = () => {
+  if (addPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(addPdfPreviewUrl.value)
+    addPdfPreviewUrl.value = ''
+  }
+  fileLaporan.value = null
+  showAddPdfPreview.value = false
+  const fileInput = document.getElementById('add-file-laporan')
+  if (fileInput) fileInput.value = ''
+}
+
+const closeAddModal = () => {
+  if (addPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(addPdfPreviewUrl.value)
+    addPdfPreviewUrl.value = ''
+  }
+  showAddPdfPreview.value = false
+  showAddModal.value = false
+}
+
 const openAddModal = () => {
   form.value = {
     id: null,
@@ -281,8 +317,14 @@ const openAddModal = () => {
     email_pemohon: '',
     jenis_pengujian: ''
   }
+  if (addPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(addPdfPreviewUrl.value)
+    addPdfPreviewUrl.value = ''
+  }
   fileLaporan.value = null
+  showAddPdfPreview.value = false
   isParsing.value = false
+  isSaving.value = false
   extractionMethod.value = ''
   autofilledFields.value = {
     nomor_pengujian: false,
@@ -296,6 +338,7 @@ const openAddModal = () => {
 
 const handleAdd = async () => {
   errorMessage.value = ''
+  isSaving.value = true
   try {
     const formData = new FormData()
     formData.append('nomor_pengujian', form.value.nomor_pengujian)
@@ -313,11 +356,13 @@ const handleAdd = async () => {
       }
     })
     successMessage.value = 'Data pengujian berhasil ditambahkan!'
-    showAddModal.value = false
+    closeAddModal()
     fetchData(1)
     setTimeout(() => { successMessage.value = '' }, 3000)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Gagal menyimpan data.'
+  } finally {
+    isSaving.value = false
   }
 }
 
@@ -328,7 +373,8 @@ const openEditModal = (item) => {
     nomor_pengujian: item.nomor_pengujian,
     nama_pemohon: item.nama_pemohon,
     email_pemohon: item.email_pemohon,
-    jenis_pengujian: item.jenis_pengujian
+    jenis_pengujian: item.jenis_pengujian,
+    status: item.status
   }
   errorMessage.value = ''
   showEditModal.value = true
@@ -337,39 +383,13 @@ const openEditModal = (item) => {
 const handleEdit = async () => {
   errorMessage.value = ''
   try {
-    await api.put(`/api/admin/pengujian/${form.value.id}`, form.value)
-    successMessage.value = 'Metadata berhasil diperbarui!'
+    const response = await api.put(`/api/admin/pengujian/${form.value.id}`, form.value)
+    successMessage.value = response.data?.message || 'Metadata berhasil diperbarui!'
     showEditModal.value = false
     fetchData(currentPage.value)
-    setTimeout(() => { successMessage.value = '' }, 3000)
+    setTimeout(() => { successMessage.value = '' }, 4000)
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'Gagal menyimpan data.'
-  }
-}
-
-// Edit Email Pemohon
-const openEmailModal = (item) => {
-  emailForm.value = {
-    id: item.id,
-    nomor_pengujian: item.nomor_pengujian,
-    email_pemohon: item.email_pemohon
-  }
-  errorMessage.value = ''
-  showEmailModal.value = true
-}
-
-const handleEmailEdit = async () => {
-  errorMessage.value = ''
-  try {
-    await api.patch(`/api/admin/pengujian/${emailForm.value.id}/email`, {
-      email_pemohon: emailForm.value.email_pemohon
-    })
-    successMessage.value = 'Email pemohon berhasil dikoreksi!'
-    showEmailModal.value = false
-    fetchData(currentPage.value)
-    setTimeout(() => { successMessage.value = '' }, 3000)
-  } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Gagal menyimpan email.'
   }
 }
 
@@ -401,8 +421,26 @@ const goToUpload = (item) => {
   router.push({ name: 'UploadHasil', params: { id: item.id } })
 }
 
+const closeAllModals = () => {
+  if (showAddModal.value) closeAddModal()
+  if (showEditModal.value) showEditModal.value = false
+  if (showPreviewModal.value) closePreview()
+  if (showDeleteConfirm.value) showDeleteConfirm.value = false
+}
+
+const handleKeyDown = (e) => {
+  if (e.key === 'Escape') {
+    closeAllModals()
+  }
+}
+
 onMounted(() => {
   fetchData(1)
+  window.addEventListener('keydown', handleKeyDown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeyDown)
 })
 </script>
 
@@ -411,6 +449,11 @@ onMounted(() => {
     <!-- Success Banner -->
     <div v-if="successMessage" class="toast-success">
       <CheckCircle2 :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ successMessage }}
+    </div>
+
+    <!-- Error Banner -->
+    <div v-if="errorMessage" class="toast-error">
+      <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
     </div>
 
     <!-- Toolbar: Search, Filters, Add Button -->
@@ -424,6 +467,15 @@ onMounted(() => {
             @input="triggerSearch" 
             placeholder="Cari nomor pengujian atau nama pemohon..."
           />
+          <button 
+            v-if="searchCari" 
+            type="button" 
+            @click="clearSearch" 
+            class="btn-clear-search" 
+            title="Bersihkan pencarian"
+          >
+            <X :size="14" />
+          </button>
         </div>
         <button @click="openAddModal" class="btn-primary flex-icon-center">
           <Plus :size="16" /> Tambah Pengujian
@@ -445,8 +497,8 @@ onMounted(() => {
           <label>Status</label>
           <select v-model="filterStatus">
             <option value="">Semua Status</option>
-            <option value="diproses">Dalam Proses</option>
-            <option value="selesai">Selesai</option>
+            <option value="diproses">Menunggu Unggah Berkas</option>
+            <option value="selesai">Selesai &amp; Terverifikasi</option>
           </select>
         </div>
 
@@ -474,10 +526,35 @@ onMounted(() => {
 
     <!-- Data Table Card -->
     <div class="card table-card">
-      <div v-if="isLoading" class="loading-overlay">
-        <div class="spinner"><Loader2 class="animate-spin" :size="32" /></div>
-        <p>Memuat data...</p>
+      <div v-if="isLoading" class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nomor Pengujian</th>
+              <th>Nama Pemohon</th>
+              <th>Email Pemohon</th>
+              <th>Jenis Pengujian</th>
+              <th>Versi</th>
+              <th>Status</th>
+              <th>Tanggal Masuk</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="n in 5" :key="n" class="skeleton-row">
+              <td><div class="skeleton-bar" style="width: 75%;"></div></td>
+              <td><div class="skeleton-bar" style="width: 80%;"></div></td>
+              <td><div class="skeleton-bar" style="width: 85%;"></div></td>
+              <td><div class="skeleton-bar" style="width: 65%;"></div></td>
+              <td class="text-center"><div class="skeleton-bar" style="width: 40px;"></div></td>
+              <td><div class="skeleton-bar" style="width: 70px;"></div></td>
+              <td><div class="skeleton-bar" style="width: 80%;"></div></td>
+              <td><div class="skeleton-bar" style="width: 90px;"></div></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+
 
       <div v-else-if="items.length === 0" class="empty-state">
         <div class="empty-icon"><FileQuestion :size="36" /></div>
@@ -508,37 +585,59 @@ onMounted(() => {
               <td class="text-center"><span class="badge-version">v{{ item.versi }}</span></td>
               <td>
                 <span :class="['badge-status', item.status]">
-                  {{ item.status === 'selesai' ? 'Selesai' : 'Diproses' }}
+                  {{ item.status === 'selesai' ? 'Selesai' : 'Menunggu Unggah' }}
                 </span>
-                <div v-if="item.status === 'selesai'" class="admin-file-links">
-                  <a 
-                    v-if="item.file_laporan" 
-                    @click.prevent="openPreview(item.id, 'laporan', item.nomor_pengujian)" 
-                    href="#" 
-                    class="file-link" 
-                    title="Pratinjau Laporan"
-                  >
-                    <span class="flex-icon-center" style="gap: 4px; display: inline-flex;"><FileText :size="12" /> Laporan</span>
-                  </a>
+                <div v-if="item.status === 'selesai'" class="status-extra-group">
+                  <div v-if="item.file_laporan" class="admin-file-links">
+                    <a 
+                      @click.prevent="openPreview(item.id, 'laporan', item.nomor_pengujian)" 
+                      href="#" 
+                      class="file-link" 
+                      title="Pratinjau Laporan"
+                    >
+                      <span class="flex-icon-center" style="gap: 4px; display: inline-flex;"><FileText :size="12" /> Laporan</span>
+                    </a>
+                  </div>
+                  <!-- Status Notifikasi Email (Opsi 1: Pure Email) -->
+                  <div class="email-status-box">
+                    <span 
+                      v-if="item.latest_notifikasi_hasil?.status === 'terkirim'" 
+                      class="notif-pill success" 
+                      :title="'Terkirim: ' + new Date(item.latest_notifikasi_hasil.created_at).toLocaleString('id-ID')"
+                    >
+                      <Mail :size="11" /> Email Terkirim
+                    </span>
+                    <span 
+                      v-else-if="item.latest_notifikasi_hasil?.status === 'gagal'" 
+                      class="notif-pill danger" 
+                      :title="'Gagal kirim: ' + (item.latest_notifikasi_hasil.pesan_error || 'Gagal koneksi SMTP')"
+                    >
+                      <AlertTriangle :size="11" /> Gagal Kirim
+                    </span>
+                    <span 
+                      v-else 
+                      class="notif-pill muted" 
+                      title="Belum pernah dikirim notifikasi email"
+                    >
+                      <Mail :size="11" /> Belum Dikirim
+                    </span>
+                  </div>
                 </div>
               </td>
               <td>{{ new Date(item.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) }}</td>
               <td>
                 <div class="btn-actions">
-                  <button @click="goToUpload(item)" class="action-btn upload flex-icon-center" title="Upload PDF Hasil Uji">
-                    <Upload :size="12" /> Upload
+                  <button @click="goToUpload(item)" class="action-btn upload flex-icon-center" title="Unggah Berkas PDF Hasil Uji">
+                    <Upload :size="12" /> Unggah
                   </button>
                   <button @click="openEditModal(item)" class="action-btn edit flex-icon-center" title="Edit Metadata">
                     <Edit :size="12" /> Edit
-                  </button>
-                  <button @click="openEmailModal(item)" class="action-btn email flex-icon-center" title="Koreksi Email">
-                    <Mail :size="12" /> Email
                   </button>
                   <button 
                     v-if="authStore.isAdmin" 
                     @click="handleDelete(item)" 
                     class="action-btn delete flex-icon-center" 
-                    title="Hapus Pengujian (Soft Delete)"
+                    title="Hapus Data Pengujian"
                   >
                     <Trash2 :size="12" /> Hapus
                   </button>
@@ -558,14 +657,14 @@ onMounted(() => {
             :disabled="currentPage === 1" 
             class="page-btn flex-icon-center"
           >
-            <ChevronLeft :size="16" /> Prev
+            <ChevronLeft :size="16" /> Sebelumnya
           </button>
           <button 
             @click="fetchData(currentPage + 1)" 
             :disabled="currentPage === lastPage" 
             class="page-btn flex-icon-center"
           >
-            Next <ChevronRight :size="16" />
+            Berikutnya <ChevronRight :size="16" />
           </button>
         </div>
       </div>
@@ -573,96 +672,201 @@ onMounted(() => {
 
     <!-- Modals (Add / Edit / Email Correction) -->
     <!-- 1. Modal Tambah Pengujian -->
-    <div v-if="showAddModal" class="modal-backdrop">
-      <div class="modal-card">
+    <div v-if="showAddModal" class="modal-backdrop" @click.self="closeAddModal">
+      <div class="modal-card" :class="{ 'modal-card-split': fileLaporan && showAddPdfPreview }">
         <div class="modal-header">
-          <h3>Tambah Data Pengujian Baru</h3>
-          <button @click="showAddModal = false" class="close-btn">&times;</button>
-        </div>
-        <form @submit.prevent="handleAdd" class="modal-form">
-          <div v-if="errorMessage" class="modal-alert alert-danger">
-            <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
+          <div class="modal-header-info">
+            <h3>Tambah Data Pengujian Baru</h3>
+            <span v-if="fileLaporan" class="file-tag-pill">
+              <FileText :size="13" /> {{ fileLaporan.name }}
+            </span>
           </div>
-
-          <!-- Autofill via PDF Section -->
-          <div class="autofill-section">
-            <span class="section-title flex-icon-center" style="gap: 6px;"><FileText :size="16" /> Autofill via PDF</span>
-            <div class="file-input-group">
-              <label for="add-file-laporan">Laporan Hasil Pengujian</label>
-              <input 
-                type="file" 
-                id="add-file-laporan" 
-                accept=".pdf" 
-                @change="handlePdfFileChange($event, 'laporan')"
-                :disabled="isParsing"
-              />
-              <span v-if="fileLaporan" class="selected-file flex-icon-center" style="gap: 4px; display: inline-flex;"><FileText :size="14" /> {{ fileLaporan.name }}</span>
-            </div>
-            <div v-if="isParsing" class="parsing-loader">
-              <span class="spinner"><Loader2 class="animate-spin" :size="16" /></span> Sedang memproses & menganalisis berkas PDF...
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>Nomor Pengujian</label>
-            <input 
-              type="text" 
-              v-model="form.nomor_pengujian" 
-              placeholder="Contoh: UJI-2026-001" 
-              :class="{ 'autofilled-highlight': autofilledFields.nomor_pengujian }"
-              required 
-            />
-          </div>
-
-          <div class="form-group">
-            <label>Nama Pemohon</label>
-            <input 
-              type="text" 
-              v-model="form.nama_pemohon" 
-              placeholder="Masukkan nama pemohon" 
-              :class="{ 'autofilled-highlight': autofilledFields.nama_pemohon }"
-              required 
-            />
-          </div>
-
-          <div class="form-group">
-            <label>Email Pemohon</label>
-            <input 
-              type="email" 
-              v-model="form.email_pemohon" 
-              placeholder="alamat@email.com" 
-              :class="{ 'autofilled-highlight': autofilledFields.email_pemohon }"
-              required 
-            />
-          </div>
-
-          <div class="form-group">
-            <label>Jenis Pengujian</label>
-            <select 
-              v-model="form.jenis_pengujian" 
-              :class="{ 'autofilled-highlight': autofilledFields.jenis_pengujian }"
-              required
+          <div class="modal-header-actions">
+            <button 
+              v-if="fileLaporan" 
+              type="button" 
+              @click="showAddPdfPreview = !showAddPdfPreview" 
+              class="btn-toggle-preview"
+              :title="showAddPdfPreview ? 'Sembunyikan panel pratinjau' : 'Tampilkan panel pratinjau PDF'"
             >
-              <option value="" disabled>Pilih Jenis Pengujian</option>
-              <option v-for="jenis in jenisPengujianList" :key="jenis" :value="jenis">
-                {{ jenis }}
-              </option>
-            </select>
+              <component :is="showAddPdfPreview ? EyeOff : Eye" :size="15" />
+              <span>{{ showAddPdfPreview ? 'Tutup Preview' : 'Preview Berkas' }}</span>
+            </button>
+            <button @click="closeAddModal" class="close-btn">&times;</button>
+          </div>
+        </div>
+
+        <div class="modal-split-container" :class="{ 'with-preview': fileLaporan && showAddPdfPreview }">
+          
+          <!-- SISI KIRI: PRATINJAU BERKAS PDF UNTUK CROSS-CHECK DATA AUTOFILL -->
+          <div v-if="fileLaporan && showAddPdfPreview" class="modal-preview-pane">
+            <div class="preview-pane-bar">
+              <div class="preview-bar-file">
+                <FileText :size="15" class="preview-bar-icon" />
+                <span class="preview-bar-name" :title="fileLaporan.name">{{ fileLaporan.name }}</span>
+                <span class="preview-bar-size">({{ (fileLaporan.size / 1024).toFixed(1) }} KB)</span>
+              </div>
+              <div class="preview-bar-tools">
+                <button 
+                  type="button" 
+                  @click="openAddPdfInNewTab" 
+                  class="btn-tool-tab"
+                  title="Buka dokumen PDF di tab baru browser"
+                >
+                  <ExternalLink :size="13" />
+                  <span>Tab Baru</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="preview-pane-viewer">
+              <div v-if="isParsing" class="preview-loading-overlay">
+                <Loader2 class="animate-spin text-brand" :size="28" />
+                <p>Menganalisis dokumen & mengekstrak data...</p>
+              </div>
+              <iframe 
+                v-if="addPdfPreviewUrl" 
+                :src="addPdfPreviewUrl" 
+                class="add-pdf-iframe"
+                title="Pratinjau Berkas PDF Tambah Pengujian"
+              ></iframe>
+            </div>
+
+            <div class="preview-pane-hint">
+              <span>💡 <strong>Verifikasi Dokumen:</strong> Cocokkan nilai nomor pengujian, nama pemohon, dan jenis pengujian pada PDF dengan formulir di samping.</span>
+            </div>
           </div>
 
-          <div class="modal-footer">
-            <button type="button" @click="showAddModal = false" class="btn-secondary" :disabled="isSaving">Batal</button>
-            <button type="submit" class="btn-primary" :disabled="isParsing || isSaving">
-              <span v-if="isSaving" class="flex-icon-center"><Loader2 class="animate-spin" :size="16" /> Menyimpan...</span>
-              <span v-else>Simpan Data</span>
-            </button>
+          <!-- SISI KANAN: FORMULIR INPUT & AUTOFILL -->
+          <div class="modal-form-pane">
+            <form @submit.prevent="handleAdd" class="modal-form">
+              <div v-if="errorMessage" class="modal-alert alert-danger">
+                <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
+              </div>
+
+              <!-- Autofill via PDF Section -->
+              <div class="autofill-section">
+                <div class="autofill-header-row">
+                  <span class="section-title flex-icon-center" style="gap: 6px;">
+                    <FileText :size="16" /> Ekstraksi Otomatis via PDF
+                  </span>
+                  <span v-if="extractionMethod" class="extraction-badge">
+                    ⚡ Terisi Otomatis ({{ extractionMethod === 'ai' ? 'Smart AI' : 'Regex PDF' }})
+                  </span>
+                </div>
+
+                <div class="file-input-group">
+                  <label for="add-file-laporan">Laporan Hasil Pengujian (PDF)</label>
+                  <div class="file-input-action-row">
+                    <input 
+                      type="file" 
+                      id="add-file-laporan" 
+                      accept=".pdf" 
+                      @change="handlePdfFileChange($event, 'laporan')"
+                      :disabled="isParsing"
+                    />
+                    <button 
+                      v-if="fileLaporan && !showAddPdfPreview" 
+                      type="button" 
+                      @click="showAddPdfPreview = true" 
+                      class="btn-preview-shortcut"
+                    >
+                      <Eye :size="13" /> Buka Preview
+                    </button>
+                    <button 
+                      v-if="fileLaporan" 
+                      type="button" 
+                      @click="removeAddFileLaporan" 
+                      class="btn-remove-selected-file"
+                      title="Hapus / ganti berkas PDF"
+                    >
+                      <X :size="14" />
+                    </button>
+                  </div>
+                  <span v-if="fileLaporan" class="selected-file flex-icon-center" style="gap: 4px; display: inline-flex;">
+                    <CheckCircle2 :size="14" style="color: #10b981;" /> {{ fileLaporan.name }}
+                  </span>
+                </div>
+                <div v-if="isParsing" class="parsing-loader">
+                  <span class="spinner"><Loader2 class="animate-spin" :size="16" /></span> Sedang memproses & menganalisis berkas PDF...
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Nomor Pengujian</label>
+                  <span v-if="autofilledFields.nomor_pengujian" class="badge-autofill">Ekstraksi PDF</span>
+                </div>
+                <input 
+                  type="text" 
+                  v-model="form.nomor_pengujian" 
+                  placeholder="Contoh: UJI-2026-001" 
+                  :class="{ 'autofilled-highlight': autofilledFields.nomor_pengujian }"
+                  required 
+                />
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Nama Pemohon</label>
+                  <span v-if="autofilledFields.nama_pemohon" class="badge-autofill">Ekstraksi PDF</span>
+                </div>
+                <input 
+                  type="text" 
+                  v-model="form.nama_pemohon" 
+                  placeholder="Masukkan nama pemohon" 
+                  :class="{ 'autofilled-highlight': autofilledFields.nama_pemohon }"
+                  required 
+                />
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Email Pemohon</label>
+                  <span v-if="autofilledFields.email_pemohon" class="badge-autofill">Ekstraksi PDF</span>
+                </div>
+                <input 
+                  type="email" 
+                  v-model="form.email_pemohon" 
+                  placeholder="alamat@email.com" 
+                  :class="{ 'autofilled-highlight': autofilledFields.email_pemohon }"
+                  required 
+                />
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Jenis Pengujian</label>
+                  <span v-if="autofilledFields.jenis_pengujian" class="badge-autofill">Ekstraksi PDF</span>
+                </div>
+                <select 
+                  v-model="form.jenis_pengujian" 
+                  :class="{ 'autofilled-highlight': autofilledFields.jenis_pengujian }"
+                  required
+                >
+                  <option value="" disabled>Pilih Jenis Pengujian</option>
+                  <option v-for="jenis in jenisPengujianList" :key="jenis" :value="jenis">
+                    {{ jenis }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="modal-footer">
+                <button type="button" @click="closeAddModal" class="btn-secondary" :disabled="isSaving">Batal</button>
+                <button type="submit" class="btn-primary" :disabled="isParsing || isSaving">
+                  <span v-if="isSaving" class="flex-icon-center"><Loader2 class="animate-spin" :size="16" /> Menyimpan...</span>
+                  <span v-else>Simpan Data</span>
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
+        </div>
+
       </div>
     </div>
 
     <!-- 2. Modal Edit Metadata -->
-    <div v-if="showEditModal" class="modal-backdrop">
+    <div v-if="showEditModal" class="modal-backdrop" @click.self="showEditModal = false">
       <div class="modal-card">
         <div class="modal-header">
           <h3>Edit Metadata Pengujian</h3>
@@ -686,6 +890,9 @@ onMounted(() => {
           <div class="form-group">
             <label>Email Pemohon</label>
             <input type="email" v-model="form.email_pemohon" required />
+            <small v-if="form.status === 'selesai'" class="email-edit-hint">
+              💡 Pengujian ini telah selesai. Jika Anda memperbarui alamat email, sistem akan otomatis mengirimkan berkas pengujian ke alamat email baru ini.
+            </small>
           </div>
 
           <div class="form-group">
@@ -708,40 +915,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 3. Modal Koreksi Email -->
-    <div v-if="showEmailModal" class="modal-backdrop">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>Koreksi Email Pemohon</h3>
-          <button @click="showEmailModal = false" class="close-btn">&times;</button>
-        </div>
-        <form @submit.prevent="handleEmailEdit" class="modal-form">
-          <div v-if="errorMessage" class="modal-alert alert-danger">
-            <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
-          </div>
-          
-          <p class="modal-desc">Koreksi ini khusus untuk menangani kesalahan ketik email agar notifikasi berhasil terkirim. Tindakan ini dicatat pada Log Aktivitas.</p>
-
-          <div class="form-group">
-            <label>Nomor Pengujian</label>
-            <input type="text" :value="emailForm.nomor_pengujian" disabled />
-          </div>
-
-          <div class="form-group">
-            <label>Email Pemohon Baru</label>
-            <input type="email" v-model="emailForm.email_pemohon" required />
-          </div>
-
-          <div class="modal-footer">
-            <button type="button" @click="showEmailModal = false" class="btn-secondary">Batal</button>
-            <button type="submit" class="btn-primary">Update Email</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
     <!-- 4. Modal Pratinjau PDF -->
-    <div v-if="showPreviewModal" class="modal-backdrop">
+    <div v-if="showPreviewModal" class="modal-backdrop" @click.self="closePreview">
       <div class="modal-card preview-modal-card">
         <div class="modal-header">
           <h3>{{ previewTitle }}</h3>
@@ -771,7 +946,7 @@ onMounted(() => {
     </div>
 
     <!-- Custom Delete Confirmation Modal -->
-    <div v-if="showDeleteConfirm" class="modal-backdrop-confirm">
+    <div v-if="showDeleteConfirm" class="modal-backdrop-confirm" @click.self="showDeleteConfirm = false">
       <div class="confirm-card">
         <div class="confirm-header">
           <AlertTriangle :size="24" class="text-danger" />
@@ -800,6 +975,17 @@ onMounted(() => {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
   color: #166534;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+}
+
+.toast-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
   padding: 12px 24px;
   border-radius: 10px;
   font-size: 14px;
@@ -845,13 +1031,35 @@ onMounted(() => {
 
 .search-box input {
   width: 100%;
-  padding: 12px 16px 12px 46px;
+  padding: 12px 40px 12px 46px;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   font-size: 14px;
   color: #1e293b;
   transition: all 0.2s ease;
   background: #f8fafc;
+}
+
+.btn-clear-search {
+  position: absolute;
+  right: 14px;
+  background: #e2e8f0;
+  border: none;
+  color: #64748b;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+
+.btn-clear-search:hover {
+  background: #cbd5e1;
+  color: #0f172a;
 }
 
 .search-box input:focus {
@@ -875,7 +1083,7 @@ onMounted(() => {
 }
 
 .filter-group label {
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
   color: #64748b;
 }
@@ -884,7 +1092,7 @@ onMounted(() => {
   padding: 10px 14px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   background: #ffffff;
   color: #1e293b;
   outline: none;
@@ -901,7 +1109,7 @@ onMounted(() => {
 }
 
 .date-inputs span {
-  font-size: 12px;
+  font-size: 13px;
   color: #94a3b8;
 }
 
@@ -911,7 +1119,7 @@ onMounted(() => {
   border: none;
   padding: 12px 20px;
   border-radius: 10px;
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(27, 77, 62, 0.2);
@@ -929,7 +1137,7 @@ onMounted(() => {
   border: 1px solid #e2e8f0;
   padding: 10px 16px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -941,7 +1149,7 @@ onMounted(() => {
 }
 
 .btn-reset {
-  height: 38px;
+  height: 40px;
 }
 
 .table-card {
@@ -988,7 +1196,7 @@ onMounted(() => {
 
 .empty-state p {
   margin: 0;
-  font-size: 14px;
+  font-size: 14.5px;
 }
 
 .table-responsive {
@@ -999,13 +1207,14 @@ onMounted(() => {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 14px;
+  font-size: 14.5px;
 }
 
 .data-table th {
   background: #f8fafc;
   padding: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: #475569;
   border-bottom: 1px solid #e2e8f0;
 }
@@ -1014,6 +1223,7 @@ onMounted(() => {
   padding: 16px;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
+  font-size: 14.5px;
 }
 
 .table-row:hover {
@@ -1036,17 +1246,17 @@ onMounted(() => {
 .badge-version {
   background: #f1f5f9;
   color: #475569;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .badge-status {
   display: inline-block;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 30px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -1069,9 +1279,9 @@ onMounted(() => {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: 6px;
   transition: all 0.2s ease;
 }
@@ -1113,6 +1323,63 @@ onMounted(() => {
   background: #fee2e2;
 }
 
+.email-edit-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #065f46;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  line-height: 1.45;
+}
+
+.status-extra-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.email-status-box {
+  display: flex;
+}
+
+.notif-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  width: fit-content;
+  white-space: nowrap;
+}
+
+.notif-pill.success {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.notif-pill.danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.notif-pill.muted {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
 .pagination-footer {
   display: flex;
   justify-content: space-between;
@@ -1123,7 +1390,7 @@ onMounted(() => {
 }
 
 .pagination-info {
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
 }
 
@@ -1135,9 +1402,9 @@ onMounted(() => {
 .page-btn {
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -1195,7 +1462,7 @@ onMounted(() => {
 
 .modal-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 700;
   color: #1B4D3E; /* Brand primary green */
 }
@@ -1222,7 +1489,7 @@ onMounted(() => {
 }
 
 .modal-desc {
-  font-size: 13px;
+  font-size: 14px;
   color: #5B6055;
   line-height: 1.5;
   margin: 0 0 8px 0;
@@ -1231,7 +1498,7 @@ onMounted(() => {
 .modal-alert {
   padding: 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .modal-alert.alert-danger {
@@ -1247,16 +1514,16 @@ onMounted(() => {
 }
 
 .form-group label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #22261F; /* High contrast ink text */
 }
 
 .form-group input, .form-group select {
-  padding: 11px 14px;
+  padding: 12px 15px;
   border: 1.5px solid #DCDACD; /* Higher contrast border */
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 14.5px;
   color: #22261F;
   background: #ffffff;
   outline: none;
@@ -1313,7 +1580,7 @@ onMounted(() => {
 }
 
 .file-link {
-  font-size: 11px;
+  font-size: 13px;
   color: #1B4D3E;
   text-decoration: none;
   font-weight: 500;
@@ -1371,6 +1638,318 @@ onMounted(() => {
   border-radius: 8px;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
 }
+
+/* Split Modal for Tambah Pengujian with PDF Preview */
+.modal-card.modal-card-split {
+  max-width: 1160px;
+  width: 95vw;
+  height: 88vh;
+  max-height: 880px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.file-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: rgba(27, 77, 62, 0.08);
+  border: 1px solid rgba(27, 77, 62, 0.2);
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1B4D3E;
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-toggle-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-toggle-preview:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.modal-split-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal-split-container.with-preview {
+  flex-direction: row;
+}
+
+/* SISI KIRI: PREVIEW PANE */
+.modal-preview-pane {
+  flex: 1.15;
+  min-width: 0;
+  background: #f8fafc;
+  border-right: 1.5px solid #DCDACD;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.preview-pane-bar {
+  padding: 10px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.preview-bar-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1B4D3E;
+  min-width: 0;
+}
+
+.preview-bar-icon {
+  flex-shrink: 0;
+}
+
+.preview-bar-name {
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-bar-size {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: normal;
+  flex-shrink: 0;
+}
+
+.preview-bar-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-tool-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-tool-tab:hover {
+  background: #1B4D3E;
+  color: #ffffff;
+  border-color: #1B4D3E;
+}
+
+.preview-pane-viewer {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: #334155;
+}
+
+.preview-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #1B4D3E;
+  font-weight: 600;
+  z-index: 5;
+}
+
+.add-pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.preview-pane-hint {
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  font-size: 11.5px;
+  color: #475569;
+  line-height: 1.4;
+}
+
+/* SISI KANAN: FORM PANE */
+.modal-form-pane {
+  flex: 0.95;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-card-split .modal-form {
+  padding: 20px 24px;
+  gap: 14px;
+}
+
+/* Action Rows & Badges */
+.file-input-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-input-action-row input[type="file"] {
+  flex: 1;
+}
+
+.btn-preview-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: #1B4D3E;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s ease;
+}
+
+.btn-preview-shortcut:hover {
+  background: #123328;
+}
+
+.btn-remove-selected-file {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-remove-selected-file:hover {
+  background: #fee2e2;
+}
+
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.badge-autofill {
+  font-size: 10px;
+  font-weight: 700;
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.autofill-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.extraction-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #047857;
+  background: #ecfdf5;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #a7f3d0;
+}
+
+@media (max-width: 900px) {
+  .modal-card.modal-card-split {
+    max-width: 96vw;
+    height: 94vh;
+    max-height: none;
+  }
+
+  .modal-split-container.with-preview {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .modal-preview-pane {
+    flex: none;
+    height: 340px;
+    border-right: none;
+    border-bottom: 1.5px solid #DCDACD;
+  }
+
+  .modal-form-pane {
+    flex: none;
+  }
+}
+
 /* Autofill Section Styles */
 .autofill-section {
   background: rgba(27, 77, 62, 0.04); /* Light green tint background */

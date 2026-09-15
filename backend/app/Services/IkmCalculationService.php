@@ -12,16 +12,25 @@ class IkmCalculationService
      *
      * @param int|null $bulan
      * @param int|null $tahun
+     * @param int|null $triwulan
      * @return array
      */
-    public function calculateIkm(?int $bulan = null, ?int $tahun = null): array
+    public function calculateIkm(?int $bulan = null, ?int $tahun = null, ?int $triwulan = null): array
     {
         // Hubungkan ke tabel pengujian untuk memastikan data yang di-softdelete (is_deleted) diabaikan
         $query = Skm::query()
             ->join('pengujian', 'skm.pengujian_id', '=', 'pengujian.id')
             ->where('pengujian.is_deleted', false);
 
-        if ($bulan) {
+        if ($triwulan) {
+            $startMonth = ($triwulan - 1) * 3 + 1;
+            $endMonth = $triwulan * 3;
+            $query->where(function ($q) use ($startMonth, $endMonth) {
+                for ($m = $startMonth; $m <= $endMonth; $m++) {
+                    $q->orWhereMonth('skm.tanggal_isi', $m);
+                }
+            });
+        } elseif ($bulan) {
             $query->whereMonth('skm.tanggal_isi', $bulan);
         }
 
@@ -55,7 +64,7 @@ class IkmCalculationService
         $rataRataUnsurTerbobot = [];
         $totalTerbobot = 0.0;
         
-        $bobot = 1 / 16; // Menggunakan pecahan presisi 1/16 untuk 16 unsur pelayanan BRMP Biogen
+        $bobot = 1 / 16; 
 
         for ($i = 1; $i <= 16; $i++) {
             $key = "u{$i}";
@@ -74,19 +83,17 @@ class IkmCalculationService
         // IKM Terkonversi = Total Nilai Rata-rata Terbobot * 25
         $ikm = round($totalTerbobot * 25, 2);
 
-        // Tentukan Kategori Mutu & Kinerja Layanan
-        // Sesuai Permenpan RB No. 14/2017:
         // A (Sangat Baik): 81.26 - 100.00
         // B (Baik): 62.51 - 81.25
         // C (Kurang Baik): 43.76 - 62.50
         // D (Tidak Baik): 25.00 - 43.75
-        if ($ikm >= 81.26) {
+        if ($ikm >= 88.31) {
             $mutu = 'A';
             $kinerja = 'Sangat Baik';
-        } elseif ($ikm >= 62.51) {
+        } elseif ($ikm >= 76.61) {
             $mutu = 'B';
             $kinerja = 'Baik';
-        } elseif ($ikm >= 43.76) {
+        } elseif ($ikm >= 65.00) {
             $mutu = 'C';
             $kinerja = 'Kurang Baik';
         } else {

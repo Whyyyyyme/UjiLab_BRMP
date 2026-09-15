@@ -75,14 +75,12 @@ const routes = [
       {
         path: 'log-aktivitas',
         name: 'LogAktivitas',
-        component: () => import('../views/admin/LogAktivitas.vue'),
-        meta: { requiresAdmin: true }
+        component: () => import('../views/admin/LogAktivitas.vue')
       },
       {
-        path: 'akun',
-        name: 'ManajemenAkun',
-        component: () => import('../views/admin/ManajemenAkun.vue'),
-        meta: { requiresAdmin: true }
+        path: 'pengaturan',
+        name: 'PengaturanSistem',
+        component: () => import('../views/admin/Pengaturan.vue')
       },
       {
         path: 'ganti-password',
@@ -118,12 +116,6 @@ router.beforeEach((to) => {
     // PENGAMAN: Jika wajib ganti password dan tidak sedang mengakses halaman ganti password
     if (authStore.user?.wajib_ganti_password && to.name !== 'AdminGantiPassword') {
       return { name: 'AdminGantiPassword' }
-    }
-
-    // Cek otorisasi khusus Admin
-    if (to.matched.some(record => record.meta.requiresAdmin) && !authStore.isAdmin) {
-      // Jika bukan admin (hanya petugas lab), lempar ke dashboard admin dengan alert
-      return { name: 'AdminDashboard' }
     }
   }
 

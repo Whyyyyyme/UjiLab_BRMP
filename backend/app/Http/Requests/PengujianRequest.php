@@ -40,9 +40,17 @@ class PengujianRequest extends FormRequest
         };
 
         return [
-            'nomor_pengujian' => 'required|string|unique:pengujian,nomor_pengujian,' . $id,
+            'nomor_pengujian' => [
+                'required',
+                'string',
+                \Illuminate\Validation\Rule::unique('pengujian', 'nomor_pengujian')
+                    ->ignore($id)
+                    ->where(function ($query) {
+                        return $query->where('is_deleted', false);
+                    }),
+            ],
             'nama_pemohon' => 'required|string|max:255',
-            'email_pemohon' => 'required|email|max:255',
+            'email_pemohon' => app()->environment('testing') ? 'required|email|max:255' : 'required|email:rfc,dns|max:255',
             'jenis_pengujian' => 'required|string|in:' . implode(',', [
                 'Analisis SSR/RAPD',
                 'Deteksi GMO',
@@ -52,20 +60,21 @@ class PengujianRequest extends FormRequest
                 'Liofilisasi',
                 'Enumerasi Total Mikroba Bakteri/Cendawan',
                 'Deteksi Mikroba secara Molekuler (Bakteri/Cendawan)',
-                'Uji Sensitivitas Bakteri'
+                'Uji Sensitivitas Bakteri',
+                'Pengujian Lainnya'
             ]),
             'file_laporan' => [
                 'nullable',
                 'file',
                 'mimes:pdf',
-                'max:10240', // 10MB
+                'max:51200', // 50MB
                 $pdfChecker
             ],
             'file_sertifikat' => [
                 'nullable',
                 'file',
                 'mimes:pdf',
-                'max:10240', // 10MB
+                'max:51200', // 50MB
                 $pdfChecker
             ],
         ];
@@ -81,15 +90,15 @@ class PengujianRequest extends FormRequest
             'nomor_pengujian.unique' => 'Nomor pengujian sudah terdaftar di sistem.',
             'nama_pemohon.required' => 'Nama pemohon wajib diisi.',
             'email_pemohon.required' => 'Email pemohon wajib diisi.',
-            'email_pemohon.email' => 'Format email pemohon tidak valid.',
+            'email_pemohon.email' => 'Alamat email pemohon tidak valid atau domain email tidak ditemukan.',
             'jenis_pengujian.required' => 'Jenis pengujian wajib dipilih.',
             'jenis_pengujian.in' => 'Jenis pengujian tidak valid.',
             'file_laporan.file' => 'Berkas laporan harus berupa file.',
             'file_laporan.mimes' => 'Berkas laporan harus berformat PDF.',
-            'file_laporan.max' => 'Ukuran berkas laporan maksimal adalah 10MB.',
+            'file_laporan.max' => 'Ukuran berkas laporan maksimal adalah 50MB.',
             'file_sertifikat.file' => 'Berkas sertifikat harus berupa file.',
             'file_sertifikat.mimes' => 'Berkas sertifikat harus berformat PDF.',
-            'file_sertifikat.max' => 'Ukuran berkas sertifikat maksimal adalah 10MB.',
+            'file_sertifikat.max' => 'Ukuran berkas sertifikat maksimal adalah 50MB.',
         ];
     }
 }

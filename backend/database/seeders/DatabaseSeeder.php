@@ -24,15 +24,5 @@ class DatabaseSeeder extends Seeder
             'role' => 'admin',
             'wajib_ganti_password' => true,
         ]);
-
-        // Buat akun petugas lab biasa untuk testing
-        Petugas::create([
-            'nama' => 'Petugas Lab Biogen',
-            'username' => 'petugas',
-            'email' => 'petugas@brmp.go.id',
-            'password' => Hash::make('Password123!'),
-            'role' => 'petugas_lab',
-            'wajib_ganti_password' => false,
-        ]);
     }
 }

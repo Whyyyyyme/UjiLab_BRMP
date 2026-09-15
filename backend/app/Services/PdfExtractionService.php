@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Smalot\PdfParser\Parser;
+use Illuminate\Support\Facades\Http;
 use Exception;
 
 class PdfExtractionService
@@ -15,7 +16,7 @@ class PdfExtractionService
     }
 
     /**
-     * Ekstraksi data dari file PDF menggunakan Gemini AI (jika API Key dikonfigurasi) atau Fallback ke Regex.
+     * Ekstraksi data dari file PDF menggunakan AI atau Multi-Strategy Regex.
      *
      * @param string $filePath
      * @return array
@@ -39,51 +40,55 @@ class PdfExtractionService
             }
 
             if ($apiKey) {
-                // Kirim HTTP request ke Google Gemini API
-                $response = \Illuminate\Support\Facades\Http::timeout(10)
-                    ->post("https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key={$apiKey}", [
-                        'contents' => [
-                            [
-                                'parts' => [
+                $models = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+                foreach ($models as $model) {
+                    try {
+                        $response = Http::timeout(4)
+                            ->post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}", [
+                                'contents' => [
                                     [
-                                        'text' => $this->getGeminiPrompt($text)
+                                        'parts' => [
+                                            [
+                                                'text' => $this->getGeminiPrompt($text)
+                                            ]
+                                        ]
                                     ]
+                                ],
+                                'generationConfig' => [
+                                    'responseMimeType' => 'application/json'
                                 ]
-                            ]
-                        ],
-                        'generationConfig' => [
-                            'responseMimeType' => 'application/json'
-                        ]
-                    ]);
+                            ]);
 
-                if ($response->successful()) {
-                    $resJson = $response->json();
-                    $aiText = $resJson['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                    $data = json_decode(trim($aiText), true);
+                        if ($response->successful()) {
+                            $resJson = $response->json();
+                            $aiText = $resJson['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                            $data = json_decode(trim($aiText), true);
 
-                    if (is_array($data)) {
-                        $hasil = [
-                            'nomor_pengujian' => $data['nomor_pengujian'] ?? null,
-                            'nama_pemohon' => $data['nama_pemohon'] ?? null,
-                            'email_pemohon' => $data['email_pemohon'] ?? null,
-                            'jenis_pengujian' => $data['jenis_pengujian'] ?? null,
-                            'method' => 'ai',
-                        ];
+                            if (is_array($data)) {
+                                $hasil = [
+                                    'nomor_pengujian' => $this->cleanValue($data['nomor_pengujian'] ?? null),
+                                    'nama_pemohon'    => $this->cleanValue($data['nama_pemohon'] ?? null),
+                                    'email_pemohon'   => $this->cleanValue($data['email_pemohon'] ?? null),
+                                    'jenis_pengujian' => $this->validateJenisPengujian($data['jenis_pengujian'] ?? null),
+                                    'method'          => 'ai',
+                                ];
 
-                        // Pastikan jenis_pengujian divalidasi ke daftar resmi
-                        $hasil['jenis_pengujian'] = $this->validateJenisPengujian($hasil['jenis_pengujian']);
-
-                        return $hasil;
+                                if (!empty($hasil['nomor_pengujian']) && !empty($hasil['nama_pemohon'])) {
+                                    return $hasil;
+                                }
+                            }
+                        }
+                    } catch (Exception $e) {
+                        logger()->info("Gemini API ({$model}) skipped: " . $e->getMessage());
                     }
                 }
-                
-                logger()->warning('Gemini API call failed, falling back to regex. Status: ' . $response->status());
             }
         } catch (Exception $exception) {
-            logger()->error('PDF AI Extraction Error (falling back to regex): ' . $exception->getMessage());
+            logger()->error('PDF Parsing Error: ' . $exception->getMessage());
         }
 
-        // Fallback ke Regex
+        // Fallback ke Smart Regex Engine
         return $this->extractViaRegex($filePath);
     }
 
@@ -104,19 +109,23 @@ class PdfExtractionService
             'Uji Sensitivitas Bakteri'
         ]);
 
-        return "Anda adalah asisten AI yang bertugas mengekstrak metadata dari dokumen hasil uji lab.
-Harap analisis teks laporan berikut dan kembalikan JSON objek dengan format tepat:
-{
-  \"nomor_pengujian\": \"nomor pengujian/uji/sampel yang ditemukan, atau null jika tidak ada\",
-  \"nama_pemohon\": \"nama pemohon/instansi/pelanggan yang ditemukan, atau null jika tidak ada\",
-  \"email_pemohon\": \"alamat email pemohon/pelanggan yang ditemukan, atau null jika tidak ada\",
-  \"jenis_pengujian\": \"salah satu dari daftar jenis pengujian resmi di bawah, atau null jika tidak ada\"
-}
-
-Daftar jenis pengujian resmi yang diperbolehkan (pilih salah satu yang paling mendekati, atau null jika tidak cocok sama sekali):
+        return "Anda adalah sistem OCR AI ekstraksi metadata Laporan Hasil Uji (LHU).
+Harap ekstrak 4 field data dari dokumen berikut ke dalam format JSON:
+- nomor_pengujian: ambil nomor pengujian atau nomor LHU yang ditemukan (contoh: \"0900374170323\" atau \"B/1761/BSPJI-Samarinda/MS.08.01/IV/2023\").
+- nama_pemohon: ambil nama instansi/perusahaan/pelanggan pemohon (contoh: \"PT. TRITUNGGAL SENTRA BUANA\"). JANGAN pernah mengambil kata \"Alamat\".
+- email_pemohon: ambil alamat email milik PELANGGAN/PEMOHON (contoh: \"wahyunanda503@gmail.com\"). JANGAN mengambil email resmi laboratorium/balai.
+- jenis_pengujian: salah satu dari daftar resmi terdekat, atau null jika tidak cocok:
 - {$jenisList}
 
-Teks Laporan:
+Format output HARUS murni JSON objek berikut:
+{
+  \"nomor_pengujian\": \"...\",
+  \"nama_pemohon\": \"...\",
+  \"email_pemohon\": \"...\",
+  \"jenis_pengujian\": null
+}
+
+Teks Dokumen Laporan:
 \"\"\"
 {$text}
 \"\"\"";
@@ -143,14 +152,21 @@ Teks Laporan:
             'Uji Sensitivitas Bakteri'
         ];
 
-        // Pencocokan ketat (exact match)
+        // Exact match
         if (in_array($jenis, $list)) {
             return $jenis;
         }
 
-        // Pencocokan longgar (case-insensitive)
+        // Case-insensitive match
         foreach ($list as $item) {
             if (strcasecmp($jenis, $item) === 0) {
+                return $item;
+            }
+        }
+
+        // Partial match
+        foreach ($list as $item) {
+            if (stripos($jenis, $item) !== false || stripos($item, $jenis) !== false) {
                 return $item;
             }
         }
@@ -159,7 +175,7 @@ Teks Laporan:
     }
 
     /**
-     * Fallback ekstraksi berbasis Regular Expression.
+     * Multi-Strategy Regex Engine untuk PDF single-line & multi-column.
      */
     protected function extractViaRegex(string $filePath): array
     {
@@ -174,32 +190,121 @@ Teks Laporan:
         try {
             $pdf = $this->parser->parseFile($filePath);
             $text = $pdf->getText();
+            $lines = array_map('trim', explode("\n", $text));
 
-            $labelVariasi = [
-                'nomor_pengujian' => ['Nomor Pengujian', 'No. Pengujian', 'Nomor Uji', 'No Sampel'],
-                'nama_pemohon'    => ['Nama Pemohon', 'Nama Pengguna Jasa', 'Diajukan oleh', 'Nama Penguji'],
-                'jenis_pengujian' => ['Jenis Pengujian', 'Jenis Uji', 'Pengujian'],
-            ];
+            // Strategi 1: Single Line Inline Match
+            if (preg_match('/Nomor\s*Pengujian\s*:\s*([^\r\n]+)/i', $text, $m)) {
+                $hasil['nomor_pengujian'] = trim($m[1], " :\t\n\r");
+            } elseif (preg_match('/No\.\s*LHU\s*:\s*([^\r\n]+)/i', $text, $m)) {
+                $hasil['nomor_pengujian'] = trim($m[1], " :\t\n\r");
+            }
 
-            foreach ($labelVariasi as $field => $variasiLabel) {
-                foreach ($variasiLabel as $label) {
-                    if (preg_match('/' . preg_quote($label, '/') . '\s*:?\s*(.+)/i', $text, $match)) {
-                        $hasil[$field] = trim($match[1]);
-                        break;
+            if (preg_match('/Nama\s*(?:Pemohon|Pengguna\s*Jasa|Pelanggan)\s*:\s*([^\r\n]+)/i', $text, $m)) {
+                $val = trim($m[1], " :\t\n\r");
+                if (strcasecmp($val, 'Alamat') !== 0 && !empty($val)) {
+                    $hasil['nama_pemohon'] = $val;
+                }
+            }
+
+            if (preg_match('/Email\s*(?:Pemohon|Pelanggan)\s*:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i', $text, $m)) {
+                $hasil['email_pemohon'] = trim($m[1]);
+            }
+
+            if (preg_match('/Jenis\s*(?:Contoh|Pengujian|Uji)\s*:\s*([^\r\n]+)/i', $text, $m)) {
+                $hasil['jenis_pengujian'] = $this->validateJenisPengujian(trim($m[1], " :\t\n\r"));
+            }
+
+            // Strategi 2: Multi-Line Two-Column Parsing Fallback
+            foreach ($lines as $i => $line) {
+                // Nama Pemohon Multi-line Fallback
+                if (empty($hasil['nama_pemohon']) && (stripos($line, 'Nama Pemohon') !== false || stripos($line, 'Nama Pengguna Jasa') !== false)) {
+                    for ($j = $i + 1; $j < count($lines); $j++) {
+                        $next = trim($lines[$j]);
+                        if (str_starts_with($next, ':')) {
+                            $val = trim(substr($next, 1));
+                            if (!empty($val) && 
+                                strcasecmp($val, 'Alamat') !== 0 && 
+                                !preg_match('/^(DESA|JL|JALAN|KEC|KAB|RT|RW|EMISI|[0-9]{2}\s|[a-zA-Z0-9._%+-]+@)/i', $val)) {
+                                $hasil['nama_pemohon'] = $val;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Email Pemohon Multi-line Fallback
+                if (empty($hasil['email_pemohon']) && stripos($line, 'Email Pemohon') !== false) {
+                    for ($j = $i + 1; $j < count($lines); $j++) {
+                        $next = trim($lines[$j]);
+                        if (str_starts_with($next, ':')) {
+                            $val = trim(substr($next, 1));
+                            if (filter_var($val, FILTER_VALIDATE_EMAIL)) {
+                                $hasil['email_pemohon'] = $val;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Nomor Pengujian Multi-line Fallback
+                if (empty($hasil['nomor_pengujian']) && (stripos($line, 'Nomor') !== false && stripos($line, 'Pengujian') !== false)) {
+                    for ($j = $i + 1; $j < count($lines); $j++) {
+                        $next = trim($lines[$j]);
+                        if (str_starts_with($next, ':')) {
+                            $val = trim(substr($next, 1));
+                            if (!empty($val) && preg_match('/^[A-Za-z0-9\/\.\-]+$/', $val)) {
+                                $hasil['nomor_pengujian'] = $val;
+                                break;
+                            }
+                        }
                     }
                 }
             }
 
-            // Cari email pemohon menggunakan pencarian email
-            if (preg_match('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $text, $match)) {
-                $hasil['email_pemohon'] = trim($match[0]);
+            // Strategi 3: Company / Instansi Pattern Matcher Fallback
+            if (empty($hasil['nama_pemohon'])) {
+                if (preg_match('/:\s*(PT\.[^\r\n]+|CV\.[^\r\n]+|UD\.[^\r\n]+|Dinas[^\r\n]+|Balai[^\r\n]+|Universitas[^\r\n]+)/i', $text, $m)) {
+                    $hasil['nama_pemohon'] = trim($m[1]);
+                }
             }
 
-            $hasil['jenis_pengujian'] = $this->validateJenisPengujian($hasil['jenis_pengujian']);
+            // Strategi 4: Email Customer Fallback
+            if (empty($hasil['email_pemohon'])) {
+                if (preg_match_all('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', $text, $mAll)) {
+                    foreach ($mAll[0] as $email) {
+                        $domain = strtolower(substr(strrchr($email, "@"), 1));
+                        if (!str_contains($domain, 'kemenperin') && 
+                            !str_contains($domain, 'pertanian') && 
+                            !str_contains($domain, 'bspji') && 
+                            !str_contains($domain, 'baristand')) {
+                            $hasil['email_pemohon'] = trim($email);
+                            break;
+                        }
+                    }
+                }
+            }
         } catch (Exception $exception) {
             logger()->error('Regex PDF Extraction Error: ' . $exception->getMessage());
         }
 
         return $hasil;
+    }
+
+    /**
+     * Membersihkan string hasil nilai ekstraksi.
+     */
+    protected function cleanValue(?string $val): ?string
+    {
+        if (!$val) {
+            return null;
+        }
+
+        $cleaned = trim($val, " :\t\n\r\"'");
+
+        if (empty($cleaned) || strcasecmp($cleaned, 'null') === 0 || strcasecmp($cleaned, 'Alamat') === 0) {
+            return null;
+        }
+
+        return $cleaned;
     }
 }

@@ -75,14 +75,23 @@ class SkmController extends Controller
     {
         $bulan = $request->filled('bulan') ? (int) $request->bulan : null;
         $tahun = $request->filled('tahun') ? (int) $request->tahun : null;
+        $triwulan = $request->filled('triwulan') ? (int) $request->triwulan : null;
 
-        $stats = $this->ikmService->calculateIkm($bulan, $tahun);
+        $stats = $this->ikmService->calculateIkm($bulan, $tahun, $triwulan);
 
         $query = Skm::query()
             ->join('pengujian', 'skm.pengujian_id', '=', 'pengujian.id')
             ->where('pengujian.is_deleted', false);
 
-        if ($bulan) {
+        if ($triwulan) {
+            $startMonth = ($triwulan - 1) * 3 + 1;
+            $endMonth = $triwulan * 3;
+            $query->where(function ($q) use ($startMonth, $endMonth) {
+                for ($m = $startMonth; $m <= $endMonth; $m++) {
+                    $q->orWhereMonth('skm.tanggal_isi', $m);
+                }
+            });
+        } elseif ($bulan) {
             $query->whereMonth('skm.tanggal_isi', $bulan);
         }
 
@@ -108,7 +117,8 @@ class SkmController extends Controller
     {
         $bulan = $request->filled('bulan') ? (int) $request->bulan : null;
         $tahun = $request->filled('tahun') ? (int) $request->tahun : null;
+        $triwulan = $request->filled('triwulan') ? (int) $request->triwulan : null;
 
-        return Excel::download(new SkmExport($bulan, $tahun), 'rekapitulasi_skm.xlsx');
+        return Excel::download(new SkmExport($bulan, $tahun, $triwulan), 'rekapitulasi_skm.xlsx');
     }
 }

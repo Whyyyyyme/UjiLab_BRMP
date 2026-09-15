@@ -7,7 +7,7 @@ import {
   FlaskConical, 
   ClipboardList, 
   History, 
-  Users, 
+  Settings, 
   LogOut,
   AlertTriangle,
   Menu,
@@ -93,7 +93,6 @@ const confirmLogout = async () => {
         </router-link>
         
         <router-link 
-          v-if="authStore.isAdmin" 
           :to="{ name: 'LogAktivitas' }" 
           class="nav-item" 
           active-class="active"
@@ -102,21 +101,20 @@ const confirmLogout = async () => {
         </router-link>
         
         <router-link 
-          v-if="authStore.isAdmin" 
-          :to="{ name: 'ManajemenAkun' }" 
+          :to="{ name: 'PengaturanSistem' }" 
           class="nav-item" 
           active-class="active"
         >
-          <span class="icon"><Users :size="18" /></span> Manajemen Akun
+          <span class="icon"><Settings :size="18" /></span> Pengaturan
         </router-link>
       </nav>
 
       <div class="sidebar-footer">
         <div class="user-info">
-          <div class="user-avatar">{{ authStore.user?.nama?.charAt(0) || 'P' }}</div>
+          <div class="user-avatar">{{ authStore.user?.nama?.charAt(0) || 'A' }}</div>
           <div class="user-details">
-            <span class="user-name">{{ authStore.user?.nama || 'Petugas' }}</span>
-            <span class="user-role">{{ authStore.user?.role === 'admin' ? 'Administrator' : 'Petugas Lab' }}</span>
+            <span class="user-name">{{ authStore.user?.nama || 'Administrator' }}</span>
+            <span class="user-role">Administrator</span>
           </div>
         </div>
         <button @click="handleLogout" class="btn-logout" title="Keluar">
@@ -130,7 +128,7 @@ const confirmLogout = async () => {
       <header class="content-header">
         <div class="header-title">
           <h2>Halaman Administrasi</h2>
-          <p>Sistem Distribusi Hasil Uji Laboratorium</p>
+          <p>Sistem Pengujian Laboratorium</p>
         </div>
         <div class="header-actions">
           <span class="date-badge">{{ new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) }}</span>
@@ -150,7 +148,7 @@ const confirmLogout = async () => {
           <h3>Konfirmasi Keluar</h3>
         </div>
         <div class="confirm-body">
-          Apakah Anda yakin ingin keluar dari sistem portal laboratorium?
+          Apakah Anda yakin ingin keluar dari portal pengujian laboratorium BRMP Biogen?
         </div>
         <div class="confirm-footer">
           <button @click="showLogoutConfirm = false" class="btn-cancel">Batal</button>
@@ -166,7 +164,7 @@ const confirmLogout = async () => {
   display: flex;
   min-height: 100vh;
   background-color: #f0f2f5;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .mobile-topbar {
@@ -210,13 +208,14 @@ const confirmLogout = async () => {
 
 .logo-text h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff !important;
   letter-spacing: 0.5px;
 }
 
 .logo-text span {
-  font-size: 11px;
+  font-size: 12.5px;
   color: #94a3b8;
 }
 
@@ -237,7 +236,7 @@ const confirmLogout = async () => {
   text-decoration: none;
   border-radius: 8px;
   font-weight: 500;
-  font-size: 14px;
+  font-size: 15px;
   transition: all 0.2s ease;
 }
 
@@ -294,7 +293,7 @@ const confirmLogout = async () => {
 }
 
 .user-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #f8fafc;
   white-space: nowrap;
@@ -303,7 +302,7 @@ const confirmLogout = async () => {
 }
 
 .user-role {
-  font-size: 11px;
+  font-size: 12px;
   color: #94a3b8;
 }
 
@@ -315,7 +314,7 @@ const confirmLogout = async () => {
   padding: 8px;
   border-radius: 6px;
   transition: all 0.2s ease;
-  font-size: 13px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -344,14 +343,14 @@ const confirmLogout = async () => {
 
 .header-title h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   color: #1e293b;
 }
 
 .header-title p {
   margin: 4px 0 0 0;
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
 }
 
@@ -359,7 +358,7 @@ const confirmLogout = async () => {
   background: #f1f5f9;
   padding: 8px 16px;
   border-radius: 30px;
-  font-size: 12px;
+  font-size: 13.5px;
   color: #475569;
   font-weight: 500;
 }

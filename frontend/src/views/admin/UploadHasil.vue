@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../services/api'
-import { AlertTriangle, CheckCircle2, Loader2, Save } from '@lucide/vue'
+import { AlertTriangle, CheckCircle2, Loader2, Save, ArrowLeft } from '@lucide/vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,7 +47,8 @@ const jenisPengujianList = [
   'Liofilisasi',
   'Enumerasi Total Mikroba Bakteri/Cendawan',
   'Deteksi Mikroba secara Molekuler (Bakteri/Cendawan)',
-  'Uji Sensitivitas Bakteri'
+  'Uji Sensitivitas Bakteri',
+  'Pengujian Lainnya'
 ]
 
 // Fetch Pengujian Details
@@ -132,7 +133,7 @@ const handleUpload = async () => {
     }
 
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || error.message || 'Gagal mengunggah berkas. Pastikan format berkas adalah PDF asli.'
+    errorMessage.value = error.response?.data?.message || 'Gagal mengunggah berkas. Pastikan format berkas adalah PDF asli.'
   } finally {
     isUploading.value = false
   }
@@ -178,10 +179,10 @@ onMounted(() => {
       <!-- Left side: Upload Form Card -->
       <div class="card upload-card">
         <div class="card-header">
-          <button @click="router.push({ name: 'DataPengujian' })" class="btn-back">
-            ← Kembali
+          <button @click="router.push({ name: 'DataPengujian' })" class="btn-back flex-icon-center">
+            <ArrowLeft :size="14" /> Kembali
           </button>
-          <h3>Upload Hasil Uji</h3>
+          <h3>Unggah Berkas Hasil Uji</h3>
           <p class="text-muted">Nomor Uji Awal: {{ pengujian?.nomor_pengujian }}</p>
         </div>
 
@@ -214,7 +215,7 @@ onMounted(() => {
               @change="onFileLaporanChange" 
               :disabled="isUploading || showAutofillPreview"
             />
-            <span class="file-hint">Maksimal 10MB. File lama tidak akan terhapus jika diunggah ulang (versi bertambah).</span>
+            <span class="file-hint">Maksimal 50MB. File lama tidak akan terhapus jika diunggah ulang (versi bertambah).</span>
           </div>
 
           <!-- Progress Bar -->
@@ -238,7 +239,7 @@ onMounted(() => {
       <!-- Right side: Autofill Confirmation Card -->
       <div v-if="showAutofillPreview" class="card autofill-card">
         <div class="card-header">
-          <div class="autofill-badge">🤖 PDF Autofill Suggestion</div>
+          <div class="autofill-badge">🤖 Rekomendasi Ekstraksi Otomatis PDF</div>
           <h3>Konfirmasi Hasil Ekstraksi PDF</h3>
           <p class="text-muted">Sistem mendeteksi data di bawah ini dari file PDF yang baru saja diunggah. Mohon periksa kembali sebelum menyimpan.</p>
         </div>

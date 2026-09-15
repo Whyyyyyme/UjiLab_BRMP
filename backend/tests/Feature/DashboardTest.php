@@ -63,9 +63,9 @@ class DashboardTest extends TestCase
     }
 
     /**
-     * Test data dashboard berhasil diakses oleh petugas_lab (tanpa recent_logs) (F-22).
+     * Test data dashboard berhasil diakses oleh user terautentikasi (F-22).
      */
-    public function test_akses_dashboard_petugas_tanpa_recent_logs(): void
+    public function test_akses_dashboard_user_dengan_recent_logs(): void
     {
         $response = $this->actingAs($this->petugas, 'sanctum')
             ->getJson('/api/admin/dashboard');
@@ -79,7 +79,7 @@ class DashboardTest extends TestCase
                     'notifikasi_gagal' => 1,
                 ],
             ])
-            ->assertJsonCount(0, 'recent_logs');
+            ->assertJsonCount(1, 'recent_logs');
     }
 
     /**

@@ -20,8 +20,30 @@ const isLoading = ref(true)
 const errorMessage = ref('')
 
 // State Filter
+const filterTriwulan = ref('')
 const filterMonth = ref('')
 const filterYear = ref(new Date().getFullYear())
+
+const triwulanList = [
+  { value: 1, label: 'Triwulan I (Januari - Maret)' },
+  { value: 2, label: 'Triwulan II (April - Juni)' },
+  { value: 3, label: 'Triwulan III (Juli - September)' },
+  { value: 4, label: 'Triwulan IV (Oktober - Desember)' }
+]
+
+const onTriwulanChange = () => {
+  if (filterTriwulan.value) {
+    filterMonth.value = ''
+  }
+  fetchSkmData(1)
+}
+
+const onMonthChange = () => {
+  if (filterMonth.value) {
+    filterTriwulan.value = ''
+  }
+  fetchSkmData(1)
+}
 
 const months = [
   { value: 1, label: 'Januari' },
@@ -86,6 +108,7 @@ const fetchSkmData = async (page = 1) => {
     const response = await api.get('/api/admin/skm/ikm', {
       params: { 
         page,
+        triwulan: filterTriwulan.value || undefined,
         bulan: filterMonth.value || undefined,
         tahun: filterYear.value || undefined
       }
@@ -105,6 +128,7 @@ const fetchSkmData = async (page = 1) => {
 
 // Reset filters
 const resetFilters = () => {
+  filterTriwulan.value = ''
   filterMonth.value = ''
   filterYear.value = new Date().getFullYear()
   fetchSkmData(1)
@@ -115,6 +139,7 @@ const handleExport = async () => {
   try {
     const response = await api.get('/api/admin/skm/ekspor', { 
       params: {
+        triwulan: filterTriwulan.value || undefined,
         bulan: filterMonth.value || undefined,
         tahun: filterYear.value || undefined
       },
@@ -123,7 +148,13 @@ const handleExport = async () => {
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `rekapitulasi_skm_${filterMonth.value || 'semua'}_${filterYear.value || 'semua'}.xlsx`)
+    let labelPeriode = 'semua'
+    if (filterTriwulan.value) {
+      labelPeriode = `triwulan_${filterTriwulan.value}`
+    } else if (filterMonth.value) {
+      labelPeriode = `bulan_${filterMonth.value}`
+    }
+    link.setAttribute('download', `rekapitulasi_skm_${labelPeriode}_${filterYear.value || 'semua'}.xlsx`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -143,7 +174,7 @@ onMounted(() => {
     <div class="header-section">
       <div class="header-info">
         <h2>Laporan &amp; Indeks Kepuasan Masyarakat</h2>
-        <p class="text-muted">Ringkasan nilai IKM dan rekap data survei kepuasan masyarakat berdasarkan Permenpan RB No. 14 Tahun 2017.</p>
+        <p class="text-muted">Ringkasan nilai IKM dan rekap data survei kepuasan masyarakat.</p>
       </div>
       <button @click="handleExport" class="btn-primary btn-export" :disabled="isLoading || totalResponden === 0">
         <Download :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> Ekspor Rekap (Excel)
@@ -154,8 +185,16 @@ onMounted(() => {
     <div class="card filter-card">
       <div class="filter-row">
         <div class="filter-group">
+          <label>Filter Triwulan</label>
+          <select v-model="filterTriwulan" @change="onTriwulanChange" :disabled="isLoading">
+            <option value="">Semua Triwulan</option>
+            <option v-for="tw in triwulanList" :key="tw.value" :value="tw.value">{{ tw.label }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Filter Bulan</label>
-          <select v-model="filterMonth" @change="fetchSkmData(1)" :disabled="isLoading">
+          <select v-model="filterMonth" @change="onMonthChange" :disabled="isLoading">
             <option value="">Semua Bulan</option>
             <option v-for="m in months" :key="m.value" :value="m.value">{{ m.label }}</option>
           </select>
@@ -182,11 +221,21 @@ onMounted(() => {
       <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
     </div>
 
-    <!-- Loading state -->
-    <div v-if="isLoading" class="loading-state">
-      <div class="spinner"><Loader2 class="animate-spin" :size="32" /></div>
-      <p>Memproses metrik laporan...</p>
+    <!-- Skeleton Loading State -->
+    <div v-if="isLoading" class="laporan-grid">
+      <div class="stats-overview">
+        <div v-for="n in 3" :key="n" class="card stat-card" style="padding: 20px;">
+          <div class="skeleton-bar" style="width: 50%; height: 14px; margin-bottom: 16px;"></div>
+          <div class="skeleton-bar" style="width: 70%; height: 28px; margin-bottom: 12px;"></div>
+          <div class="skeleton-bar" style="width: 80%; height: 12px;"></div>
+        </div>
+      </div>
+      <div class="card" style="padding: 24px;">
+        <div class="skeleton-bar" style="width: 30%; height: 20px; margin-bottom: 20px;"></div>
+        <div v-for="n in 5" :key="n" class="skeleton-bar" style="width: 100%; height: 18px; margin-bottom: 12px;"></div>
+      </div>
     </div>
+
 
     <div v-else class="laporan-grid">
       <!-- Top Stats Section -->
@@ -441,7 +490,7 @@ onMounted(() => {
 }
 
 .stat-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
@@ -465,7 +514,7 @@ onMounted(() => {
 }
 
 .stat-meta {
-  font-size: 12px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -490,13 +539,13 @@ onMounted(() => {
 
 .section-desc {
   margin: -8px 0 20px 0;
-  font-size: 13px;
+  font-size: 14px;
   color: #64748b;
 }
 
 .chart-card h3, .list-card h3 {
   margin: 0 0 8px 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   color: #0f172a;
 }
@@ -516,7 +565,7 @@ onMounted(() => {
 .chart-label-group {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
   color: #475569;
 }
@@ -547,7 +596,7 @@ onMounted(() => {
 .bar-color-0 { background: #e2e8f0; } /* Kosong */
 
 .chart-terbobot-text {
-  font-size: 10px;
+  font-size: 11px;
   color: #94a3b8;
   text-align: right;
   margin-top: 1px;
@@ -574,21 +623,23 @@ onMounted(() => {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: 14.5px;
 }
 
 .responden-table th {
   background: #f8fafc;
-  padding: 12px 16px;
-  font-weight: 600;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 700;
   color: #475569;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .responden-table td {
-  padding: 12px 16px;
+  padding: 14px 16px;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
+  font-size: 14.5px;
   vertical-align: top;
 }
 
@@ -608,9 +659,9 @@ onMounted(() => {
 .score-summary {
   background: #f1f5f9;
   color: #475569;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 4px;
   letter-spacing: 0.5px;
 }
@@ -621,7 +672,7 @@ onMounted(() => {
 }
 
 .saran-text {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #334155;
   line-height: 1.4;
 }
@@ -641,7 +692,7 @@ onMounted(() => {
 }
 
 .pagination-info {
-  font-size: 12px;
+  font-size: 14px;
   color: #64748b;
 }
 
@@ -653,9 +704,9 @@ onMounted(() => {
 .page-btn {
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -694,7 +745,7 @@ onMounted(() => {
 }
 
 .filter-group label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
@@ -707,7 +758,7 @@ onMounted(() => {
   border: 1.5px solid #cbd5e1;
   background: #f8fafc;
   outline: none;
-  font-size: 13px;
+  font-size: 14px;
   color: #334155;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -729,7 +780,7 @@ onMounted(() => {
   border: 1px solid #cbd5e1;
   padding: 11px 18px;
   border-radius: 10px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;

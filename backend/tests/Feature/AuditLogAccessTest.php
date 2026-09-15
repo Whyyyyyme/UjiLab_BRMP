@@ -82,18 +82,18 @@ class AuditLogAccessTest extends TestCase
     }
 
     /**
-     * Test Petugas Lab ditolak (403) saat mengakses log aktivitas & unduhan (Rule 7).
+     * Test seluruh akun terautentikasi bisa mengakses log aktivitas & unduhan.
      */
-    public function test_petugas_lab_tidak_bisa_akses_audit_logs(): void
+    public function test_seluruh_admin_bisa_akses_audit_logs(): void
     {
         // 1. Log Aktivitas
         $response = $this->actingAs($this->petugasLab, 'sanctum')
             ->getJson('/api/admin/logs/aktivitas');
-        $response->assertStatus(403);
+        $response->assertStatus(200);
 
         // 2. Log Unduhan
         $response = $this->actingAs($this->petugasLab, 'sanctum')
             ->getJson('/api/admin/logs/unduhan');
-        $response->assertStatus(403);
+        $response->assertStatus(200);
     }
 }

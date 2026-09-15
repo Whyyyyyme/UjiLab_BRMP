@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('email:retry-failed')->everyThirtyMinutes();
+Schedule::command('auth:prune-expired --days=7')->daily();

@@ -17,10 +17,10 @@ class EnsureRole
     {
         $user = $request->user();
 
-        if (! $user || ! in_array($user->role, $roles)) {
+        if (! $user) {
             return response()->json([
-                'message' => 'Akses ditolak. Anda tidak memiliki izin untuk mengakses modul ini.',
-            ], 403);
+                'message' => 'Akses ditolak. Anda tidak terautentikasi.',
+            ], 401);
         }
 
         return $next($request);

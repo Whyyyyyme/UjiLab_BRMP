@@ -42,14 +42,14 @@ class UploadHasilRequest extends FormRequest
                 'nullable',
                 'file',
                 'mimes:pdf',
-                'max:10240', // 10MB
+                'max:51200', // 50MB
                 $pdfChecker
             ],
             'file_sertifikat' => [
                 'nullable',
                 'file',
                 'mimes:pdf',
-                'max:10240', // 10MB
+                'max:51200', // 50MB
                 $pdfChecker
             ],
         ];
@@ -63,10 +63,10 @@ class UploadHasilRequest extends FormRequest
         return [
             'file_laporan.file' => 'Berkas laporan harus berupa file.',
             'file_laporan.mimes' => 'Berkas laporan harus berformat PDF.',
-            'file_laporan.max' => 'Ukuran berkas laporan maksimal adalah 10MB.',
+            'file_laporan.max' => 'Ukuran berkas laporan maksimal adalah 50MB.',
             'file_sertifikat.file' => 'Berkas sertifikat harus berupa file.',
             'file_sertifikat.mimes' => 'Berkas sertifikat harus berformat PDF.',
-            'file_sertifikat.max' => 'Ukuran berkas sertifikat maksimal adalah 10MB.',
+            'file_sertifikat.max' => 'Ukuran berkas sertifikat maksimal adalah 50MB.',
         ];
     }
 }

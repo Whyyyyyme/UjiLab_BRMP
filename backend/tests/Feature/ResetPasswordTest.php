@@ -38,25 +38,28 @@ class ResetPasswordTest extends TestCase
     }
 
     /**
-     * Test Admin bisa melakukan reset password petugas ke default Password123! (F-30, Rule 7).
+     * Test Admin bisa melakukan ganti password profil (F-30).
      */
-    public function test_admin_reset_password_petugas(): void
+    public function test_admin_ganti_password_mandiri(): void
     {
         $response = $this->actingAs($this->admin, 'sanctum')
-            ->postJson("/api/admin/petugas/{$this->petugasLab->id}/reset-password");
+            ->postJson('/api/admin/ganti-password', [
+                'password_lama' => 'password123',
+                'password_baru' => 'PasswordBaru123!',
+                'password_baru_confirmation' => 'PasswordBaru123!',
+            ]);
 
         $response->assertStatus(200);
 
-        $this->petugasLab->refresh();
-        $this->assertTrue($this->petugasLab->wajib_ganti_password);
+        $this->admin->refresh();
+        $this->assertFalse($this->admin->wajib_ganti_password);
 
-        // Uji login memakai password baru (default: Password123!)
+        // Uji login memakai password baru
         $loginResponse = $this->postJson('/api/admin/login', [
-            'username' => 'petugasreset',
-            'password' => 'Password123!',
+            'username' => 'adminreset',
+            'password' => 'PasswordBaru123!',
         ]);
 
-        $loginResponse->assertStatus(200)
-            ->assertJsonPath('user.wajib_ganti_password', true);
+        $loginResponse->assertStatus(200);
     }
 }

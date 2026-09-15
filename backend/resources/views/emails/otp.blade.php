@@ -108,11 +108,6 @@
 <body>
     <div class="container">
         <div class="header">
-            @if(isset($message) && method_exists($message, 'embed'))
-                <img src="{{ $message->embed(public_path('assets/logo-kementan.png')) }}" alt="Logo BRMP Biogen" class="logo-img" />
-            @else
-                <img src="{{ config('app.url') }}/assets/logo-kementan.png" alt="Logo BRMP Biogen" class="logo-img" />
-            @endif
             <h2>BRMP BIOGEN</h2>
             <div class="header-sub">Balai Besar Perakitan dan Modernisasi Bioteknologi dan Sumber Daya Genetik Pertanian</div>
         </div>

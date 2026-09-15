@@ -17,7 +17,7 @@ return new class extends Migration
             $blueprint->string('username')->unique();
             $blueprint->string('email')->unique();
             $blueprint->string('password');
-            $blueprint->enum('role', ['admin', 'petugas_lab'])->default('petugas_lab');
+            $blueprint->enum('role', ['admin', 'petugas_lab'])->default('admin');
             $blueprint->boolean('wajib_ganti_password')->default(true);
             $blueprint->integer('percobaan_login_gagal')->default(0);
             $blueprint->timestamp('terkunci_hingga')->nullable();

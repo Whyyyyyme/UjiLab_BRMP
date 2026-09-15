@@ -64,6 +64,32 @@ class AuthTest extends TestCase
     }
 
     /**
+     * Test login sukses menggunakan email / gmail.
+     */
+    public function test_login_sukses_menggunakan_email(): void
+    {
+        $response = $this->postJson('/api/admin/login', [
+            'username' => 'petugastest@brmp.go.id',
+            'password' => 'password123',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonStructure([
+                'token',
+                'user' => [
+                    'id',
+                    'nama',
+                    'username',
+                    'email',
+                    'role',
+                    'wajib_ganti_password',
+                ],
+            ])
+            ->assertJsonPath('user.email', 'petugastest@brmp.go.id')
+            ->assertJsonPath('user.username', 'petugastest');
+    }
+
+    /**
      * Test login dengan password salah.
      */
     public function test_login_gagal_password_salah(): void

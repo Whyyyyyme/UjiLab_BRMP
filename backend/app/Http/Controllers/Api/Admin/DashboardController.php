@@ -26,7 +26,7 @@ class DashboardController extends Controller
         $user = auth()->user();
         $recentLogs = [];
 
-        if ($user && $user->role === 'admin') {
+        if ($user) {
             $recentLogs = LogAktivitas::with('petugas')
                 ->orderBy('created_at', 'desc')
                 ->limit(5)

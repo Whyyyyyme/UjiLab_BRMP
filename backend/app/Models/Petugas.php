@@ -39,19 +39,23 @@ class Petugas extends Authenticatable
         ];
     }
 
+    protected $attributes = [
+        'role' => 'admin',
+    ];
+
     /**
-     * Cek apakah user adalah admin
+     * Cek apakah user adalah admin (selalu true karena single role)
      */
     public function isAdmin(): bool
     {
-        return $this->role === 'admin';
+        return true;
     }
 
     /**
-     * Cek apakah user adalah petugas lab
+     * Cek apakah user adalah petugas lab (deprecated, return false)
      */
     public function isPetugasLab(): bool
     {
-        return $this->role === 'petugas_lab';
+        return false;
     }
 }

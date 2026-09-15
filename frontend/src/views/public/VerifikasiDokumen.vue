@@ -152,27 +152,61 @@ onMounted(() => {
 
 <style scoped>
 .public-container {
+  font-family: var(--font-sans);
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 10% 20%, rgba(243, 244, 246, 1) 0%, rgba(229, 231, 235, 1) 90%);
+  background: radial-gradient(circle at 50% 0%, #f0f7f4 0%, #f8fafc 60%, #e2e8f0 100%);
   padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.public-container::before {
+  content: '';
+  position: absolute;
+  top: -120px;
+  right: -120px;
+  width: 360px;
+  height: 360px;
+  background: radial-gradient(circle, rgba(234, 179, 8, 0.12) 0%, rgba(255, 255, 255, 0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.public-container::after {
+  content: '';
+  position: absolute;
+  bottom: -120px;
+  left: -120px;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(27, 77, 62, 0.1) 0%, rgba(255, 255, 255, 0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .landing-card {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(20px);
   border-radius: 24px;
   width: 100%;
   max-width: 500px;
   padding: 40px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 20px 40px -15px rgba(27, 77, 62, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-top: 5px solid #1B4D3E;
+  position: relative;
+  z-index: 1;
   animation: cardEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.warning-card {
+  border-top: 5px solid #dc2626;
 }
 
 @keyframes cardEnter {
@@ -189,6 +223,7 @@ onMounted(() => {
 
 .spinner {
   font-size: 32px;
+  color: #1B4D3E;
   animation: spin 2s linear infinite;
 }
 
@@ -403,6 +438,7 @@ onMounted(() => {
 .btn-primary:hover {
   background: #13382D;
   transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(27, 77, 62, 0.35);
 }
 
 .btn-secondary {
@@ -450,8 +486,8 @@ onMounted(() => {
   .public-container {
     padding: 16px 12px;
   }
-  .verify-card {
-    padding: 24px 18px;
+  .landing-card {
+    padding: 28px 20px;
     border-radius: 20px;
   }
   .brand {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import api from '../../services/api'
 import { AlertTriangle, Download, Loader2, User, FileDown, RefreshCw, Search, ChevronLeft, ChevronRight, FileText } from '@lucide/vue'
 
@@ -9,7 +9,6 @@ const activeTab = ref('aktivitas')
 // Data State
 const logsAktivitas = ref([])
 const logsUnduhan = ref([])
-const petugasList = ref([])
 
 // Loading / Error
 const isLoading = ref(false)
@@ -34,15 +33,52 @@ const filterUnduhan = ref({
   tanggal_akhir: ''
 })
 
-// Load Petugas list for dropdown filter
-const fetchPetugasList = async () => {
-  try {
-    const response = await api.get('/api/admin/petugas')
-    petugasList.value = response.data
-  } catch (error) {
-    console.error('Failed to load petugas list:', error)
+// Dynamic Today date string (YYYY-MM-DD) for max date attribute
+const maxToday = computed(() => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+})
+
+// Auto-correct invalid date range for Aktivitas
+watch(() => filterAktivitas.value.tanggal_mulai, (newVal) => {
+  if (newVal && newVal > maxToday.value) {
+    filterAktivitas.value.tanggal_mulai = maxToday.value
   }
-}
+  if (newVal && filterAktivitas.value.tanggal_akhir && filterAktivitas.value.tanggal_akhir < newVal) {
+    filterAktivitas.value.tanggal_akhir = newVal
+  }
+})
+
+watch(() => filterAktivitas.value.tanggal_akhir, (newVal) => {
+  if (newVal && newVal > maxToday.value) {
+    filterAktivitas.value.tanggal_akhir = maxToday.value
+  }
+  if (newVal && filterAktivitas.value.tanggal_mulai && filterAktivitas.value.tanggal_mulai > newVal) {
+    filterAktivitas.value.tanggal_mulai = newVal
+  }
+})
+
+// Auto-correct invalid date range for Unduhan
+watch(() => filterUnduhan.value.tanggal_mulai, (newVal) => {
+  if (newVal && newVal > maxToday.value) {
+    filterUnduhan.value.tanggal_mulai = maxToday.value
+  }
+  if (newVal && filterUnduhan.value.tanggal_akhir && filterUnduhan.value.tanggal_akhir < newVal) {
+    filterUnduhan.value.tanggal_akhir = newVal
+  }
+})
+
+watch(() => filterUnduhan.value.tanggal_akhir, (newVal) => {
+  if (newVal && newVal > maxToday.value) {
+    filterUnduhan.value.tanggal_akhir = maxToday.value
+  }
+  if (newVal && filterUnduhan.value.tanggal_mulai && filterUnduhan.value.tanggal_mulai > newVal) {
+    filterUnduhan.value.tanggal_mulai = newVal
+  }
+})
 
 // Fetch Logs
 const fetchLogs = async (page = 1) => {
@@ -125,7 +161,6 @@ watch(activeTab, () => {
 })
 
 onMounted(() => {
-  fetchPetugasList()
   fetchLogs(1)
 })
 </script>
@@ -136,7 +171,7 @@ onMounted(() => {
     <div class="header-section">
       <div class="header-info">
         <h2>Pelacakan Audit Log &amp; Riwayat</h2>
-        <p class="text-muted">Pantau rekap aktivitas sensitif petugas laboratorium serta akses unduhan laporan oleh publik.</p>
+        <p class="text-muted">Pantau rekap aktivitas administrator serta riwayat unduhan dokumen pengujian oleh publik.</p>
       </div>
       <button @click="handleExport" class="btn-export" :disabled="isLoading">
         <Download :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> Ekspor Log (Excel)
@@ -155,7 +190,7 @@ onMounted(() => {
         class="tab-btn flex-icon-center" 
         :class="{ active: activeTab === 'aktivitas' }"
       >
-        <User :size="16" /> Aktivitas Petugas
+        <User :size="16" /> Aktivitas Admin
       </button>
       <button 
         @click="activeTab = 'unduhan'" 
@@ -173,30 +208,18 @@ onMounted(() => {
         <!-- Filter untuk Log Aktivitas -->
         <div v-if="activeTab === 'aktivitas'" class="filters-grid">
           <div class="filter-group">
-            <label>Petugas</label>
-            <select v-model="filterAktivitas.petugas_id">
-              <option value="">-- Semua Petugas --</option>
-              <option v-for="p in petugasList" :key="p.id" :value="p.id">
-                {{ p.nama }} ({{ p.username }})
-              </option>
-            </select>
-          </div>
-
-          <div class="filter-group">
             <label>Jenis Tindakan</label>
             <select v-model="filterAktivitas.aksi">
               <option value="">-- Semua Tindakan --</option>
-              <option value="Tambah Petugas">Tambah Petugas</option>
-              <option value="Update Petugas">Update Petugas</option>
-              <option value="Hapus Petugas">Hapus Petugas</option>
-              <option value="Reset Password Petugas">Reset Password Petugas</option>
               <option value="Tambah Pengujian">Tambah Pengujian</option>
               <option value="Update Pengujian">Update Pengujian</option>
-              <option value="Upload Hasil Uji">Upload Hasil Uji</option>
+              <option value="Upload Hasil Uji">Unggah Hasil Uji</option>
               <option value="Kirim Email Hasil Uji">Kirim Email Hasil Uji</option>
+              <option value="Koreksi Email">Koreksi Email Pemohon</option>
               <option value="Hapus Pengujian">Hapus Pengujian</option>
-              <option value="Login">Login</option>
+              <option value="Login">Login Admin</option>
               <option value="Ganti Password">Ganti Password</option>
+              <option value="Update Profil">Update Profil Admin</option>
             </select>
           </div>
 
@@ -205,6 +228,7 @@ onMounted(() => {
             <input 
               type="date" 
               v-model="filterAktivitas.tanggal_mulai" 
+              :max="filterAktivitas.tanggal_akhir || maxToday" 
               @click="$event.target.showPicker?.()" 
               class="input-date-picker"
             />
@@ -215,6 +239,8 @@ onMounted(() => {
             <input 
               type="date" 
               v-model="filterAktivitas.tanggal_akhir" 
+              :min="filterAktivitas.tanggal_mulai || undefined" 
+              :max="maxToday" 
               @click="$event.target.showPicker?.()" 
               class="input-date-picker"
             />
@@ -224,16 +250,8 @@ onMounted(() => {
         <!-- Filter untuk Log Unduhan -->
         <div v-else class="filters-grid">
           <div class="filter-group">
-            <label>Tipe Berkas</label>
-            <select v-model="filterUnduhan.tipe_file">
-              <option value="">-- Semua Tipe Berkas --</option>
-              <option value="laporan">Laporan Hasil Uji</option>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <label>IP Address</label>
-            <input type="text" placeholder="Cari IP..." v-model="filterUnduhan.ip_address" />
+            <label>Cari IP Address</label>
+            <input type="text" placeholder="Masukkan IP Address..." v-model="filterUnduhan.ip_address" />
           </div>
 
           <div class="filter-group">
@@ -241,6 +259,7 @@ onMounted(() => {
             <input 
               type="date" 
               v-model="filterUnduhan.tanggal_mulai" 
+              :max="filterUnduhan.tanggal_akhir || maxToday" 
               @click="$event.target.showPicker?.()" 
               class="input-date-picker"
             />
@@ -251,6 +270,8 @@ onMounted(() => {
             <input 
               type="date" 
               v-model="filterUnduhan.tanggal_akhir" 
+              :min="filterUnduhan.tanggal_mulai || undefined" 
+              :max="maxToday" 
               @click="$event.target.showPicker?.()" 
               class="input-date-picker"
             />
@@ -269,10 +290,30 @@ onMounted(() => {
       </div>
 
       <!-- Spinner Loader -->
-      <div v-if="isLoading" class="loading-state">
-        <div class="spinner"><Loader2 :size="32" /></div>
-        <p>Memuat audit log...</p>
+      <!-- Skeleton Loader -->
+      <div v-if="isLoading" class="table-container">
+        <table class="log-table">
+          <thead>
+            <tr>
+              <th>Waktu</th>
+              <th>Administrator</th>
+              <th>Tindakan</th>
+              <th>Detail Kegiatan</th>
+              <th>IP Address</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="n in 5" :key="n" class="skeleton-row">
+              <td><div class="skeleton-bar" style="width: 110px;"></div></td>
+              <td><div class="skeleton-bar" style="width: 120px;"></div></td>
+              <td><div class="skeleton-bar" style="width: 80px;"></div></td>
+              <td><div class="skeleton-bar" style="width: 85%;"></div></td>
+              <td><div class="skeleton-bar" style="width: 90px;"></div></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+
 
       <!-- Tab Content Area -->
       <div v-else>
@@ -282,7 +323,7 @@ onMounted(() => {
             <thead>
               <tr>
                 <th>Waktu</th>
-                <th>Petugas</th>
+                <th>Administrator</th>
                 <th>Tindakan</th>
                 <th>Detail Kegiatan</th>
                 <th>IP Address</th>
@@ -290,7 +331,7 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-if="logsAktivitas.length === 0">
-                <td colspan="5" class="empty-row">Tidak ada log aktivitas petugas.</td>
+                <td colspan="5" class="empty-row">Tidak ada log aktivitas administrator.</td>
               </tr>
               <tr v-for="log in logsAktivitas" :key="log.id">
                 <td class="text-nowrap">
@@ -316,25 +357,19 @@ onMounted(() => {
               <tr>
                 <th>Waktu Unduh</th>
                 <th>Nomor Pengujian</th>
-                <th>Jenis Berkas</th>
                 <th>Akses Oleh</th>
                 <th>IP Address</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="logsUnduhan.length === 0">
-                <td colspan="5" class="empty-row">Belum ada riwayat unduhan berkas.</td>
+                <td colspan="4" class="empty-row">Belum ada riwayat unduhan berkas.</td>
               </tr>
               <tr v-for="log in logsUnduhan" :key="log.id">
                 <td class="text-nowrap">
                   {{ new Date(log.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }}
                 </td>
                 <td class="text-bold">{{ log.pengujian?.nomor_pengujian }}</td>
-                <td>
-                  <span class="badge-file laporan flex-icon-center" style="gap: 4px; display: inline-flex;">
-                    <FileText :size="12" /> Laporan Hasil Uji
-                  </span>
-                </td>
                 <td>
                   <span class="badge-akses" :class="log.akses_oleh">
                     {{ log.akses_oleh }}
@@ -498,7 +533,7 @@ onMounted(() => {
 }
 
 .filter-group label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #475569;
   text-transform: uppercase;
@@ -506,10 +541,10 @@ onMounted(() => {
 }
 
 .filter-group input, .filter-group select {
-  padding: 8px 12px;
+  padding: 9px 13px;
   border: 1.5px solid #cbd5e1;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   color: #1e293b;
   outline: none;
   background: #ffffff;
@@ -544,9 +579,9 @@ onMounted(() => {
   background: #1B4D3E;
   color: white;
   border: none;
-  padding: 8px 16px;
+  padding: 9px 18px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s ease;
@@ -560,9 +595,9 @@ onMounted(() => {
   background: #f1f5f9;
   border: 1.5px solid #cbd5e1;
   color: #475569;
-  padding: 8px 16px;
+  padding: 9px 18px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -581,21 +616,23 @@ onMounted(() => {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: 14.5px;
 }
 
 .log-table th {
   background: #f8fafc;
-  padding: 12px 16px;
-  font-weight: 600;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 700;
   color: #475569;
   border-bottom: 1.5px solid #e2e8f0;
 }
 
 .log-table td {
-  padding: 14px 16px;
+  padding: 15px 16px;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
+  font-size: 14.5px;
 }
 
 .log-table tbody tr:hover {
@@ -619,7 +656,7 @@ onMounted(() => {
 }
 
 .font-mono {
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .detail-cell {
@@ -630,9 +667,9 @@ onMounted(() => {
 
 /* Badges */
 .badge-action {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
   display: inline-block;
 }
@@ -648,9 +685,9 @@ onMounted(() => {
 .badge-action.ganti-password { background: #e0f2fe; color: #0369a1; }
 
 .badge-file {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
 }
 
@@ -658,9 +695,9 @@ onMounted(() => {
 .badge-file.sertifikat { background: #f5f3ff; color: #5b21b6; }
 
 .badge-akses {
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
 }
 .badge-akses.publik { background: #ecfdf5; color: #065f46; }
@@ -677,7 +714,7 @@ onMounted(() => {
 }
 
 .pagination-info {
-  font-size: 12px;
+  font-size: 14px;
   color: #64748b;
 }
 
@@ -689,9 +726,9 @@ onMounted(() => {
 .page-btn {
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #1e293b;
   cursor: pointer;
