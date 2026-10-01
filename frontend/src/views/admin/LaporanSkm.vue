@@ -158,9 +158,11 @@ const handleExport = async () => {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('Failed to export:', error)
-    alert('Gagal mengekspor laporan.')
+    errorMessage.value = 'Gagal mengekspor laporan. Silakan coba beberapa saat lagi.'
+    setTimeout(() => { errorMessage.value = '' }, 4000)
   }
 }
 

@@ -1,6 +1,6 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import api from '../../services/api'
 import { useAksesPublikStore } from '../../stores/aksesPublik'
 import { 
@@ -11,18 +11,26 @@ import {
   ShieldCheck, 
   Lock, 
   FileCheck,
-  HelpCircle,
   MessageCircle
 } from '@lucide/vue'
 
 const router = useRouter()
+const route = useRoute()
 const aksesPublikStore = useAksesPublikStore()
 
 const nomorPengujian = ref('')
 const persetujuanPdp = ref(false)
 const isLoading = ref(false)
 const errorMessage = ref('')
-const showHelp = ref(false)
+
+onMounted(() => {
+  if (route.query.nomor_pengujian) {
+    nomorPengujian.value = String(route.query.nomor_pengujian).trim()
+  }
+  if (route.query.session_expired === '1') {
+    errorMessage.value = 'Sesi akses Anda telah kedaluwarsa (berlaku 30 menit). Silakan masukkan kembali nomor pengujian untuk verifikasi OTP baru.'
+  }
+})
 
 const handleSearch = async () => {
   if (!persetujuanPdp.value) {
@@ -140,24 +148,7 @@ const handleSearch = async () => {
           <!-- Form Input -->
           <form @submit.prevent="handleSearch" class="main-form">
             <div class="form-field">
-              <div class="field-top">
-                <label for="nomor-input">Nomor Formulir Pengujian</label>
-                <button 
-                  type="button" 
-                  class="help-link-btn" 
-                  @click="showHelp = !showHelp"
-                >
-                  <HelpCircle :size="13" />
-                  <span>Contoh format</span>
-                </button>
-              </div>
-
-              <!-- Quick Helper Note -->
-              <transition name="dropdown-anim">
-                <div v-if="showHelp" class="help-popover">
-                  Nomor pengujian tercetak di tengah atas lembar formulir permohonan. Format umum: <code>012/LAB-BIO/2026</code> atau <code>UJI-2026-0001</code>.
-                </div>
-              </transition>
+              <label for="nomor-input">Nomor Pengujian</label>
 
               <!-- Search Input Field -->
               <div class="input-container">
@@ -166,7 +157,7 @@ const handleSearch = async () => {
                   type="text" 
                   id="nomor-input" 
                   v-model="nomorPengujian" 
-                  placeholder="Contoh: 012/LAB-BIO/2026" 
+                  placeholder="Masukkan nomor pengujian Anda" 
                   autocomplete="off"
                   :disabled="isLoading"
                   required
@@ -502,53 +493,11 @@ const handleSearch = async () => {
   gap: 8px;
 }
 
-.field-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 
-.field-top label {
+.form-field label {
   font-size: 13.5px;
   font-weight: 700;
   color: #1e293b;
-}
-
-.help-link-btn {
-  background: none;
-  border: none;
-  color: #1B4D3E;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-}
-
-.help-link-btn:hover {
-  text-decoration: underline;
-}
-
-/* Helper Popover */
-.help-popover {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-left: 3px solid #1B4D3E;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #475569;
-  line-height: 1.45;
-}
-
-.help-popover code {
-  background: #e2e8f0;
-  color: #0f172a;
-  padding: 1px 4px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
 }
 
 /* Input Container */

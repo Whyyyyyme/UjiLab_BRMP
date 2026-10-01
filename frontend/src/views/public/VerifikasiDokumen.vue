@@ -7,7 +7,8 @@ import { Loader2, AlertTriangle, Search, XCircle, RefreshCw, CheckCircle2, Arrow
 const route = useRoute()
 const router = useRouter()
 
-const nomorPengujianParam = route.params.nomor_pengujian
+const rawParam = route.params.nomor_pengujian
+const nomorPengujianParam = Array.isArray(rawParam) ? rawParam.join('/') : (rawParam || '')
 
 // State
 const pengujian = ref(null)

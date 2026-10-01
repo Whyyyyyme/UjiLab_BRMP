@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../../services/api'
 import { useAksesPublikStore } from '../../stores/aksesPublik'
@@ -21,6 +21,7 @@ const aksesPublikStore = useAksesPublikStore()
 const isLoading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const isDraftRestored = ref(false)
 
 const form = reactive({
   nama: aksesPublikStore.nama_pemohon || '',
@@ -47,6 +48,48 @@ const form = reactive({
   u16: null
 })
 
+// Kunci penyimpanan draf unik per nomor/ID pengujian
+const DRAFT_KEY = computed(() => `skm_draft_${aksesPublikStore.pengujianId || 'active'}`)
+
+const restoreDraft = () => {
+  try {
+    const saved = localStorage.getItem(DRAFT_KEY.value)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      let count = 0
+      Object.keys(parsed).forEach(k => {
+        if (k in form && parsed[k] !== null && parsed[k] !== '') {
+          form[k] = parsed[k]
+          count++
+        }
+      })
+      if (count > 0) {
+        isDraftRestored.value = true
+      }
+    }
+  } catch {
+    // Abaikan jika localStorage tidak diizinkan di browser
+  }
+}
+
+const clearDraft = () => {
+  try {
+    localStorage.removeItem(DRAFT_KEY.value)
+    isDraftRestored.value = false
+  } catch {}
+}
+
+// Pantau setiap perubahan formulir untuk disimpan secara otomatis
+watch(
+  form,
+  (newVal) => {
+    try {
+      localStorage.setItem(DRAFT_KEY.value, JSON.stringify(newVal))
+    } catch {}
+  },
+  { deep: true }
+)
+
 // Proteksi jika token tidak ada
 onMounted(async () => {
   if (!aksesPublikStore.hasAkses) {
@@ -57,7 +100,24 @@ onMounted(async () => {
   // Jika sudah pernah mengisi SKM, langsung bypass ke halaman download
   if (aksesPublikStore.skmFilled) {
     router.replace({ name: 'HasilUnduh' })
+    return
   }
+
+  // Cek ke server apakah SKM sudah pernah diisi di database
+  try {
+    const statusRes = await api.get('/api/public/pengujian/status')
+    if (statusRes.data?.skm_diisi) {
+      aksesPublikStore.setSkmFilled(true)
+      clearDraft()
+      router.replace({ name: 'HasilUnduh' })
+      return
+    }
+  } catch {
+    // abaikan jika gagal cek jaringan, biarkan user mengisi form
+  }
+
+  // Pulihkan draf sebelumnya jika ada
+  restoreDraft()
 })
 
 // Unsur pertanyaan kuesioner SKM
@@ -312,12 +372,22 @@ const handleSubmit = async () => {
     
     successMessage.value = response.data.message || 'Survei berhasil disimpan! Mengalihkan ke dokumen hasil uji...'
     aksesPublikStore.setSkmFilled(true)
+    clearDraft()
 
     setTimeout(() => {
       router.push({ name: 'HasilUnduh' })
     }, 1200)
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Gagal mengirim survei SKM. Silakan coba kembali.'
+    if (error.response?.status === 400 && error.response?.data?.message?.toLowerCase().includes('sudah mengisi')) {
+      aksesPublikStore.setSkmFilled(true)
+      clearDraft()
+      successMessage.value = 'Survei SKM telah diisi sebelumnya. Mengalihkan ke dokumen hasil uji...'
+      setTimeout(() => {
+        router.replace({ name: 'HasilUnduh' })
+      }, 1200)
+    } else {
+      errorMessage.value = error.response?.data?.message || 'Gagal mengirim survei SKM. Silakan coba kembali.'
+    }
   } finally {
     isLoading.value = false
   }
@@ -391,6 +461,15 @@ const handleSubmit = async () => {
         <div v-if="successMessage" class="alert-success">
           <CheckCircle2 :size="18" class="alert-ico" />
           <span>{{ successMessage }}</span>
+        </div>
+
+        <!-- Notifikasi Draf Dipulihkan -->
+        <div v-if="isDraftRestored" class="alert-draft">
+          <div class="draft-text-wrap">
+            <CheckCircle2 :size="18" class="draft-ico" />
+            <span><strong>Draf Jawaban Dipulihkan:</strong> Jawaban survei yang sebelumnya Anda isi telah dipulihkan secara otomatis.</span>
+          </div>
+          <button type="button" @click="isDraftRestored = false" class="draft-close-btn" title="Tutup">&times;</button>
         </div>
 
         <!-- SECTION 1: BIODATA RESPONDEN -->
@@ -844,6 +923,45 @@ const handleSubmit = async () => {
   border-radius: 12px;
   font-size: 14px;
   font-weight: 500;
+}
+
+.alert-draft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #1B4D3E;
+  color: #334155;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+.draft-text-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.draft-ico {
+  color: #1B4D3E;
+  flex-shrink: 0;
+}
+
+.draft-close-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.draft-close-btn:hover {
+  color: #475569;
 }
 
 .alert-ico {

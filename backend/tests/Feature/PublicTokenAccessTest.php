@@ -98,4 +98,29 @@ class PublicTokenAccessTest extends TestCase
                 'skm_diisi' => false,
             ]);
     }
+
+    /**
+     * Test akses ditolak jika pengujian telah di-soft-delete meskipun token belum expired (Security Patch Finding #2).
+     */
+    public function test_akses_status_ditolak_jika_pengujian_telah_dihapus(): void
+    {
+        $key = Str::random(40);
+        $token = TokenAkses::create([
+            'pengujian_id' => $this->pengujian->id,
+            'token_hash' => Hash::make($key),
+            'expired_at' => now()->addMinutes(30),
+        ]);
+
+        // Soft delete pengujian
+        $this->pengujian->update(['is_deleted' => true]);
+
+        $tokenPlainText = $token->id . '|' . $key;
+
+        $response = $this->withHeaders([
+            'X-Akses-Token' => $tokenPlainText
+        ])->getJson('/api/public/pengujian/status');
+
+        $response->assertStatus(404)
+            ->assertJsonPath('message', 'Data pengujian tidak ditemukan atau telah dinonaktifkan.');
+    }
 }

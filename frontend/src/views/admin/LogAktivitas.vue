@@ -149,9 +149,11 @@ const handleExport = async () => {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('Failed to export log:', error)
-    alert('Gagal mengekspor data log.')
+    errorMessage.value = 'Gagal mengekspor data log. Silakan coba beberapa saat lagi.'
+    setTimeout(() => { errorMessage.value = '' }, 4000)
   }
 }
 

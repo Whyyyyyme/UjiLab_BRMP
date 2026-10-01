@@ -1,0 +1,1 @@
+var e=`/assets/logo-kementan-Bm_RJBux.png`;export{e as t};

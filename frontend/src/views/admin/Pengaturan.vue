@@ -10,23 +10,23 @@ import {
   AlertTriangle, 
   Save, 
   KeyRound,
+  Archive,
   Database,
-  Trash2,
+  CalendarClock,
+  HardDrive,
   RefreshCw,
-  Clock,
-  Sparkles
+  Clock
 } from '@lucide/vue'
 
 const authStore = useAuthStore()
 
-// State Active Tab
-const activeTab = ref('profil') // 'profil', 'keamanan', 'pemeliharaan'
+// State Active Tab ('profil' | 'keamanan' | 'arsip')
+const activeTab = ref('profil')
 
-// Maintenance state
-const maintenanceStats = ref(null)
-const isLoadingMaintenance = ref(false)
-const isPruning = ref(false)
-const pruneDays = ref(7)
+// State Arsip & Backup
+const archiveStats = ref(null)
+const isLoadingArchiveStats = ref(false)
+const isActionRunning = ref(false)
 
 // Form State Profil
 const formProfil = reactive({
@@ -111,38 +111,100 @@ const handleUpdatePassword = async () => {
   }
 }
 
-// Handler Maintenance
-const fetchMaintenanceStats = async () => {
-  isLoadingMaintenance.value = true
+// Handlers Arsip & Backup Otomatis
+const fetchArchiveStats = async () => {
+  isLoadingArchiveStats.value = true
   try {
-    const response = await api.get('/api/admin/maintenance/stats')
-    maintenanceStats.value = response.data
+    const res = await api.get('/api/admin/maintenance/archive-stats?years=3')
+    archiveStats.value = res.data
   } catch (err) {
-    console.error('Gagal memuat statistik pemeliharaan:', err)
+    console.error('Gagal memuat statistik arsip', err)
   } finally {
-    isLoadingMaintenance.value = false
+    isLoadingArchiveStats.value = false
   }
 }
 
-const handlePruneData = async () => {
-  const daysText = pruneDays.value == 0 ? 'seluruh data yang sudah kedaluwarsa saat ini' : `data yang telah kedaluwarsa lebih dari ${pruneDays.value} hari`
-  if (!confirm(`Apakah Anda yakin ingin membersihkan ${daysText}?\nTindakan ini akan menghapus rekaman OTP dan Token kadaluarsa secara permanen dari basis data.`)) {
-    return
+// State Modal Konfirmasi Khusus (Pengganti confirm bawaan browser)
+const confirmModal = reactive({
+  show: false,
+  title: '',
+  message: '',
+  confirmText: '',
+  confirmType: 'primary',
+  action: null
+})
+
+const openConfirm = ({ title, message, confirmText, confirmType = 'primary', onConfirm }) => {
+  confirmModal.title = title
+  confirmModal.message = message
+  confirmModal.confirmText = confirmText
+  confirmModal.confirmType = confirmType
+  confirmModal.action = onConfirm
+  confirmModal.show = true
+}
+
+const closeConfirm = () => {
+  confirmModal.show = false
+  confirmModal.action = null
+}
+
+const executeConfirm = async () => {
+  const actionToRun = confirmModal.action
+  closeConfirm()
+  if (actionToRun) {
+    await actionToRun()
   }
+}
 
+const handleManualBackup = () => {
+  openConfirm({
+    title: 'Konfirmasi Pencadangan Data',
+    message: 'Pencadangan sebenarnya sudah berjalan otomatis tiap bulan. Apakah Anda yakin ingin menjalankan pencadangan basis data & berkas LHU sekarang secara manual?',
+    confirmText: 'Ya, Cadangkan Sekarang',
+    confirmType: 'primary',
+    onConfirm: async () => {
+      clearMessages()
+      isActionRunning.value = true
+      try {
+        const res = await api.post('/api/admin/maintenance/backup-now')
+        successMessage.value = res.data.message
+        await fetchArchiveStats()
+      } catch (err) {
+        errorMessage.value = err.response?.data?.message || 'Gagal menjalankan pencadangan.'
+      } finally {
+        isActionRunning.value = false
+      }
+    }
+  })
+}
+
+const handleManualArchive = () => {
+  openConfirm({
+    title: 'Konfirmasi Pengarsipan Data Lama',
+    message: 'Pengarsipan berjalan otomatis tiap bulan. Apakah Anda yakin ingin mengarsipkan pengujian yang telah berusia > 3 tahun sekarang? Berkas fisik PDF aktif akan dibersihkan dari server live guna membebaskan ruang disk.',
+    confirmText: 'Ya, Arsipkan Data Sekarang',
+    confirmType: 'warning',
+    onConfirm: async () => {
+      clearMessages()
+      isActionRunning.value = true
+      try {
+        const res = await api.post('/api/admin/maintenance/archive-now?years=3')
+        successMessage.value = res.data.message
+        await fetchArchiveStats()
+      } catch (err) {
+        errorMessage.value = err.response?.data?.message || 'Gagal menjalankan pengarsipan.'
+      } finally {
+        isActionRunning.value = false
+      }
+    }
+  })
+}
+
+const switchTab = (tab) => {
+  activeTab.value = tab
   clearMessages()
-  isPruning.value = true
-
-  try {
-    const response = await api.post('/api/admin/maintenance/prune', {
-      days: Number(pruneDays.value)
-    })
-    successMessage.value = response.data.message
-    await fetchMaintenanceStats()
-  } catch (err) {
-    errorMessage.value = err.response?.data?.message || 'Gagal membersihkan data sampah.'
-  } finally {
-    isPruning.value = false
+  if (tab === 'arsip' && !archiveStats.value) {
+    fetchArchiveStats()
   }
 }
 
@@ -152,7 +214,6 @@ onMounted(() => {
     formProfil.username = authStore.user.username || ''
     formProfil.email = authStore.user.email || ''
   }
-  fetchMaintenanceStats()
 })
 </script>
 
@@ -162,7 +223,7 @@ onMounted(() => {
     <div class="page-header">
       <div>
         <h1 class="title">Pengaturan Sistem &amp; Profil</h1>
-        <p class="subtitle">Kelola profil administrator dan keamanan kata sandi akun</p>
+        <p class="subtitle">Kelola profil administrator, keamanan akun, dan pemeliharaan arsip otomatis</p>
       </div>
     </div>
 
@@ -180,23 +241,23 @@ onMounted(() => {
       <button 
         class="tab-btn" 
         :class="{ active: activeTab === 'profil' }"
-        @click="activeTab = 'profil'"
+        @click="switchTab('profil')"
       >
         <User :size="16" /> Profil Admin
       </button>
       <button 
         class="tab-btn" 
         :class="{ active: activeTab === 'keamanan' }"
-        @click="activeTab = 'keamanan'"
+        @click="switchTab('keamanan')"
       >
         <Lock :size="16" /> Keamanan &amp; Kata Sandi
       </button>
       <button 
         class="tab-btn" 
-        :class="{ active: activeTab === 'pemeliharaan' }"
-        @click="activeTab = 'pemeliharaan'; if (!maintenanceStats) fetchMaintenanceStats()"
+        :class="{ active: activeTab === 'arsip' }"
+        @click="switchTab('arsip')"
       >
-        <Database :size="16" /> Pemeliharaan Sistem
+        <Archive :size="16" /> Retensi &amp; Arsip Otomatis
       </button>
     </div>
 
@@ -308,117 +369,146 @@ onMounted(() => {
       </form>
     </div>
 
-    <!-- TAB 3: PEMELIHARAAN SISTEM (GARBAGE COLLECTION) -->
-    <div v-if="activeTab === 'pemeliharaan'" class="card-settings">
+    <!-- TAB 3: RETENSI & ARSIP DATA OTOMATIS -->
+    <div v-if="activeTab === 'arsip'" class="card-settings">
       <div class="card-title">
-        <Database :size="20" class="icon-brand" />
+        <Archive :size="20" class="icon-brand" />
         <div>
-          <h3>Pemeliharaan Basis Data &amp; Pembersihan Sampah</h3>
-          <p>Optimalkan performa aplikasi dan efisiensi ruang penyimpanan dengan membersihkan kode OTP kadaluarsa dan token akses publik lama.</p>
+          <h3>Retensi &amp; Pengarsipan Data Otomatis</h3>
+          <p>Otomasi pencadangan data bulanan dan pengelolaan arsip berkas hasil uji lama (&gt; 3 tahun).</p>
         </div>
       </div>
 
-      <!-- Stats Grid -->
-      <div class="maintenance-grid">
-        <div class="m-card">
-          <div class="m-card-header">
-            <span class="m-card-label">OTP Kedaluwarsa</span>
-            <KeyRound :size="18" class="text-amber" />
-          </div>
-          <div class="m-card-val">
-            <span v-if="isLoadingMaintenance" class="skeleton-text">...</span>
-            <span v-else>{{ maintenanceStats?.otp_kedaluwarsa ?? 0 }}</span>
-          </div>
-          <div class="m-card-sub">
-            dari total {{ maintenanceStats?.total_otp ?? 0 }} riwayat kode OTP
+      <!-- Banner Status Otomasi -->
+      <div class="automation-banner">
+        <CalendarClock :size="24" class="banner-icon" />
+        <div class="banner-text">
+          <strong>Sistem Berjalan 100% Otomatis (Hands-Free):</strong>
+          Setiap tanggal 1 awal bulan pukul 01:00, sistem secara otomatis mencadangkan seluruh basis data dan berkas LHU ke repositori cadangan server. Selanjutnya pada pukul 02:00, sistem mengarsipkan pengujian yang telah berusia lebih dari 3 tahun guna membebaskan ruang disk server tanpa memerlukan tindakan manual dari petugas.
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div v-if="isLoadingArchiveStats" class="loading-panel text-center">
+        <RefreshCw :size="24" class="animate-spin text-green" />
+        <p class="text-muted text-sm mt-2">Memuat statistik retensi arsip...</p>
+      </div>
+
+      <!-- Metrik Arsip Grid -->
+      <div v-else class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon-wrap bg-green-subtle text-green"><HardDrive :size="20" /></div>
+          <div class="stat-info">
+            <span class="stat-label">Pengujian Aktif</span>
+            <span class="stat-value text-green">{{ archiveStats?.pengujian_aktif ?? 0 }}</span>
+            <span class="stat-desc">Berusia &lt; 3 tahun (portal live)</span>
           </div>
         </div>
 
-        <div class="m-card">
-          <div class="m-card-header">
-            <span class="m-card-label">Token Akses Kedaluwarsa</span>
-            <Lock :size="18" class="text-indigo" />
-          </div>
-          <div class="m-card-val">
-            <span v-if="isLoadingMaintenance" class="skeleton-text">...</span>
-            <span v-else>{{ maintenanceStats?.token_kedaluwarsa ?? 0 }}</span>
-          </div>
-          <div class="m-card-sub">
-            dari total {{ maintenanceStats?.total_token ?? 0 }} token akses publik
+        <div class="stat-card">
+          <div class="stat-icon-wrap bg-blue-subtle text-blue"><Archive :size="20" /></div>
+          <div class="stat-info">
+            <span class="stat-label">Telah Diarsipkan</span>
+            <span class="stat-value text-blue">{{ archiveStats?.pengujian_diarsipkan ?? 0 }}</span>
+            <span class="stat-desc">Data aman di repositori arsip</span>
           </div>
         </div>
 
-        <div class="m-card">
-          <div class="m-card-header">
-            <span class="m-card-label">Pengujian di Tempat Sampah</span>
-            <Trash2 :size="18" class="text-rose" />
+        <div class="stat-card">
+          <div class="stat-icon-wrap bg-amber-subtle text-amber"><Clock :size="20" /></div>
+          <div class="stat-info">
+            <span class="stat-label">Siap Diarsipkan</span>
+            <span class="stat-value text-amber">{{ archiveStats?.siap_diarsipkan ?? 0 }}</span>
+            <span class="stat-desc">Akan diarsipkan awal bulan</span>
           </div>
-          <div class="m-card-val">
-            <span v-if="isLoadingMaintenance" class="skeleton-text">...</span>
-            <span v-else>{{ maintenanceStats?.pengujian_terhapus ?? 0 }}</span>
-          </div>
-          <div class="m-card-sub">
-            data soft-deleted yang diarsipkan
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon-wrap bg-purple-subtle text-purple"><Database :size="20" /></div>
+          <div class="stat-info">
+            <span class="stat-label">Cadangan Bulanan</span>
+            <span class="stat-value">{{ archiveStats?.total_backups ?? 0 }} Berkas</span>
+            <span class="stat-desc" v-if="archiveStats?.latest_backup">Terbaru: {{ archiveStats.latest_backup.size }}</span>
+            <span class="stat-desc" v-else>Terjadwal awal bulan</span>
           </div>
         </div>
       </div>
 
-      <!-- Automation Info Banner -->
-      <div class="maintenance-banner">
-        <div class="banner-icon">
-          <Clock :size="22" />
-        </div>
-        <div class="banner-content">
-          <h4>Pembersihan Otomatis Terjadwal (Cron Job)</h4>
-          <p>
-            Sistem telah dilengkapi penjadwal otomatis di latar belakang (<strong>Laravel Scheduler</strong>) yang berjalan setiap hari pada tengah malam (pukul 00:00) untuk membuang token dan OTP yang telah kedaluwarsa lebih dari 7 hari:
-          </p>
-          <code class="cron-command">php artisan auth:prune-expired --days=7</code>
+      <!-- Riwayat Cadangan Terakhir -->
+      <div v-if="archiveStats?.backup_history?.length" class="backup-history-card">
+        <h4>Riwayat Berkas Cadangan Tersimpan</h4>
+        <div class="history-list">
+          <div v-for="b in archiveStats.backup_history" :key="b.name" class="history-item">
+            <div class="history-item-name flex-icon-center">
+              <Database :size="16" class="text-green" />
+              <span>{{ b.name }}</span>
+            </div>
+            <span class="badge-size">{{ b.size }}</span>
+          </div>
         </div>
       </div>
 
-      <!-- Manual Action Box -->
-      <div class="manual-clean-box">
-        <div class="box-header">
-          <Sparkles :size="18" class="text-emerald" />
-          <h4>Pembersihan Manual Sesuai Kebutuhan (On-Demand)</h4>
-        </div>
-        <p class="box-desc">
-          Anda dapat memicu pembersihan secara manual sewaktu-waktu untuk segera mengosongkan rekaman yang sudah tidak berlaku tanpa menunggu jadwal harian:
+      <!-- Aksi On-Demand (Opsional) -->
+      <div class="manual-actions-card">
+        <h4>Tindakan Manual (Opsional / Kebutuhan Khusus)</h4>
+        <p class="text-muted text-sm">
+          Semua proses pencadangan dan pengarsipan berjalan terjadwal secara otomatis di latar belakang. Anda hanya perlu menggunakan tombol ini jika sewaktu-waktu membutuhkan pencadangan seketika sebelum pemeliharaan server.
         </p>
+        <div class="actions-buttons-row">
+          <button 
+            type="button" 
+            class="btn-action flex-icon-center" 
+            @click="handleManualBackup" 
+            :disabled="isActionRunning"
+          >
+            <Database :size="16" /> {{ isActionRunning ? 'Memproses...' : 'Cadangkan Data Sekarang' }}
+          </button>
+          <button 
+            type="button" 
+            class="btn-action flex-icon-center" 
+            @click="handleManualArchive" 
+            :disabled="isActionRunning"
+          >
+            <Archive :size="16" /> {{ isActionRunning ? 'Memproses...' : 'Arsipkan Data Lama Sekarang' }}
+          </button>
+          <button 
+            type="button" 
+            class="btn-reload flex-icon-center" 
+            @click="fetchArchiveStats" 
+            title="Segarkan data statistik"
+            :disabled="isLoadingArchiveStats"
+          >
+            <RefreshCw :size="16" :class="{ 'animate-spin': isLoadingArchiveStats }" />
+          </button>
+        </div>
+      </div>
+    </div>
 
-        <div class="clean-controls">
-          <div class="filter-group">
-            <label for="prune-days">Batas Retensi Kedaluwarsa:</label>
-            <select id="prune-days" v-model="pruneDays" class="select-input">
-              <option :value="0">Semua yang sudah kedaluwarsa saat ini (0 hari)</option>
-              <option :value="3">Kedaluwarsa lebih dari 3 hari lalu</option>
-              <option :value="7">Kedaluwarsa lebih dari 7 hari lalu (Standar)</option>
-              <option :value="30">Kedaluwarsa lebih dari 30 hari lalu</option>
-            </select>
+    <!-- Custom Action Confirmation Modal (Pengganti confirm browser) -->
+    <div v-if="confirmModal.show" class="modal-backdrop-confirm" @click.self="closeConfirm">
+      <div class="confirm-card">
+        <div class="confirm-header">
+          <div class="confirm-icon-wrap" :class="confirmModal.confirmType === 'warning' ? 'bg-amber-light text-warning' : 'bg-green-light text-green'">
+            <Archive v-if="confirmModal.confirmType === 'warning'" :size="24" />
+            <Database v-else :size="24" />
           </div>
-
-          <div class="action-buttons">
-            <button 
-              type="button" 
-              class="btn-refresh flex-icon-center" 
-              @click="fetchMaintenanceStats" 
-              :disabled="isLoadingMaintenance"
-            >
-              <RefreshCw :size="15" :class="{ 'spin-icon': isLoadingMaintenance }" /> 
-              {{ isLoadingMaintenance ? 'Memuat...' : 'Segarkan Statistik' }}
-            </button>
-            <button 
-              type="button" 
-              class="btn-prune flex-icon-center" 
-              @click="handlePruneData" 
-              :disabled="isPruning"
-            >
-              <Trash2 :size="16" v-if="!isPruning" />
-              <RefreshCw :size="16" class="spin-icon" v-else />
-              {{ isPruning ? 'Sedang Membersihkan...' : 'Bersihkan Data Sampah Sekarang' }}
-            </button>
+          <div class="confirm-title-wrap">
+            <h3>{{ confirmModal.title }}</h3>
+            <span class="confirm-sub">Tindakan Administrator</span>
           </div>
+        </div>
+        <div class="confirm-body">
+          {{ confirmModal.message }}
+        </div>
+        <div class="confirm-footer">
+          <button type="button" @click="closeConfirm" class="btn-cancel">Batal</button>
+          <button 
+            type="button" 
+            @click="executeConfirm" 
+            :class="confirmModal.confirmType === 'warning' ? 'btn-confirm-warning' : 'btn-confirm-primary'"
+          >
+            {{ confirmModal.confirmText }}
+          </button>
         </div>
       </div>
     </div>
@@ -678,251 +768,338 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
 }
 
-/* Maintenance Tab Styling */
-.maintenance-grid {
+/* Tab 3: Retensi & Arsip Otomatis Styling */
+.automation-banner {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-left: 4px solid #166534;
+  padding: 16px 20px;
+  border-radius: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.banner-icon {
+  color: #166534;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.banner-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #166534;
+
+  strong {
+    display: block;
+    margin-bottom: 2px;
+  }
+}
+
+.stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
 }
 
-@media (max-width: 860px) {
-  .maintenance-grid {
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .stats-grid {
     grid-template-columns: 1fr;
   }
 }
 
-.m-card {
+.stat-card {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 18px 20px;
+  padding: 20px;
+  border-radius: 14px;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 14px;
   transition: all 0.2s ease;
 
   &:hover {
-    border-color: #cbd5e1;
-    background: #ffffff;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   }
 }
 
-.m-card-header {
+.stat-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.m-card-label {
+.bg-green-subtle { background: #dcfce7; }
+.bg-blue-subtle { background: #dbeafe; }
+.bg-amber-subtle { background: #fef3c7; }
+.bg-purple-subtle { background: #f3e8ff; }
+
+.text-green { color: #166534; }
+.text-blue { color: #1d4ed8; }
+.text-amber { color: #b45309; }
+.text-purple { color: #7e22ce; }
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-label {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-.m-card-val {
-  font-size: 28px;
+.stat-value {
+  font-size: 22px;
   font-weight: 800;
   color: #0f172a;
-  line-height: 1.1;
+  margin: 2px 0;
 }
 
-.m-card-sub {
-  font-size: 13px;
+.stat-desc {
+  font-size: 12px;
   color: #94a3b8;
 }
 
-.text-amber {
-  color: #d97706;
-}
-
-.text-indigo {
-  color: #4f46e5;
-}
-
-.text-rose {
-  color: #e11d48;
-}
-
-.text-emerald {
-  color: #059669;
-}
-
-.maintenance-banner {
-  display: flex;
-  gap: 16px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-left: 4px solid #3b82f6;
-  padding: 18px 20px;
-  border-radius: 12px;
-}
-
-.banner-icon {
-  color: #2563eb;
-  padding-top: 2px;
-}
-
-.banner-content {
-  flex: 1;
+.backup-history-card, .manual-actions-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 22px;
+  border-radius: 14px;
 
   h4 {
-    margin: 0 0 6px 0;
     font-size: 15px;
     font-weight: 700;
-    color: #1e3a8a;
-  }
-
-  p {
-    margin: 0 0 10px 0;
-    font-size: 14px;
-    color: #334155;
-    line-height: 1.5;
+    color: #1e293b;
+    margin: 0 0 6px 0;
   }
 }
 
-.cron-command {
-  display: inline-block;
-  background: #1e293b;
-  color: #38bdf8;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.manual-clean-box {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 24px;
-}
-
-.box-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-
-  h4 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 700;
-    color: #0f172a;
-  }
-}
-
-.box-desc {
-  margin: 0 0 20px 0;
-  font-size: 14px;
-  color: #64748b;
-  line-height: 1.5;
-}
-
-.clean-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.filter-group {
+.history-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-
-  label {
-    font-size: 13px;
-    font-weight: 700;
-    color: #475569;
-  }
+  gap: 8px;
+  margin-top: 14px;
 }
 
-.select-input {
-  padding: 10px 14px;
-  border: 1.5px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #1e293b;
-  background: #f8fafc;
-  outline: none;
-  min-width: 280px;
-  transition: all 0.2s ease;
-
-  &:focus {
-    background: #ffffff;
-    border-color: #1B4D3E;
-    box-shadow: 0 0 0 3px rgba(27, 77, 62, 0.15);
-  }
-}
-
-.action-buttons {
+.history-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 12px 16px;
+  border-radius: 10px;
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.history-item-name {
   gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: #334155;
+}
+
+.badge-size {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 6px;
+}
+
+.actions-buttons-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
   flex-wrap: wrap;
 }
 
-.btn-refresh {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-
-  &:hover:not(:disabled) {
-    background: #e2e8f0;
-    color: #1e293b;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-.btn-prune {
-  background: #dc2626;
-  color: #ffffff;
-  border: none;
+.btn-action {
+  background: #ffffff;
+  color: #1B4D3E;
+  border: 1.5px solid #1B4D3E;
   padding: 10px 18px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+  gap: 8px;
   transition: all 0.2s ease;
 
   &:hover:not(:disabled) {
-    background: #b91c1c;
-    transform: translateY(-1px);
+    background: #1B4D3E;
+    color: #ffffff;
   }
 
   &:disabled {
-    background: #f87171;
+    opacity: 0.5;
     cursor: not-allowed;
   }
 }
 
-.spin-icon {
-  animation: spin 1s linear infinite;
+.btn-reload {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+
+  &:hover {
+    color: #0f172a;
+    border-color: #94a3b8;
+  }
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Custom Action Confirmation Modal */
+.modal-backdrop-confirm {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 16px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.confirm-card {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 440px;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
+  animation: scaleIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.confirm-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bg-amber-light {
+  background-color: #fef3c7;
+}
+
+.bg-green-light {
+  background-color: rgba(27, 77, 62, 0.1);
+}
+
+.confirm-title-wrap h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.confirm-sub {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.confirm-body {
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.confirm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-footer button {
+  padding: 10px 18px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.btn-cancel {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.btn-cancel:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.btn-confirm-primary {
+  background: #1B4D3E;
+  color: #ffffff;
+  border: none;
+}
+
+.btn-confirm-primary:hover {
+  background: #14382d;
+  box-shadow: 0 4px 12px rgba(27, 77, 62, 0.25);
+}
+
+.btn-confirm-warning {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+}
+
+.btn-confirm-warning:hover {
+  background: #b45309;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.25);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 </style>

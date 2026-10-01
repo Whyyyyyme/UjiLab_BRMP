@@ -179,5 +179,55 @@ class AuthTest extends TestCase
             ->postJson('/api/admin/ganti-password', []);
         $responseGanti->assertStatus(422);
     }
+
+    /**
+     * Test rate limiting rute login admin (mencegah brute-force password) (throttle:10,1).
+     */
+    public function test_admin_login_route_rate_limiting(): void
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $response = $this->postJson('/api/admin/login', [
+                'username' => 'wronguser',
+                'password' => 'wrongpass',
+            ]);
+            $this->assertNotEquals(429, $response->status());
+        }
+
+        // Request ke-11 harus diblokir (429)
+        $response = $this->postJson('/api/admin/login', [
+            'username' => 'wronguser',
+            'password' => 'wrongpass',
+        ]);
+        $response->assertStatus(429);
+    }
+
+    /**
+     * Test ganti password mencabut token sesi lain yang aktif (Security Patch Finding #3).
+     */
+    public function test_ganti_password_mencabut_seluruh_token_sesi_lain(): void
+    {
+        $token1 = $this->petugas->createToken('session_current');
+        $token2 = $this->petugas->createToken('session_other');
+
+        $this->assertEquals(2, $this->petugas->tokens()->count());
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token1->plainTextToken)
+            ->postJson('/api/admin/ganti-password', [
+                'password_lama' => 'password123',
+                'password_baru' => 'newsecretpassword123',
+                'password_baru_confirmation' => 'newsecretpassword123',
+            ]);
+
+        $response->assertStatus(200);
+
+        // Token2 harus sudah terhapus, hanya token1 (sesi saat ini) yang tersisa
+        $this->assertEquals(1, $this->petugas->tokens()->count());
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'id' => $token2->accessToken->id,
+        ]);
+        $this->assertDatabaseHas('personal_access_tokens', [
+            'id' => $token1->accessToken->id,
+        ]);
+    }
 }
 

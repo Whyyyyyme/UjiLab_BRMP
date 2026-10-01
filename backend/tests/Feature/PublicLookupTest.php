@@ -21,7 +21,8 @@ class PublicLookupTest extends TestCase
             'nama_pemohon' => 'Budi Santoso',
             'email_pemohon' => 'budi.santoso@gmail.com',
             'jenis_pengujian' => 'Deteksi GMO',
-            'status' => 'diproses',
+            'status' => 'selesai',
+            'file_laporan' => 'hasil_uji/dummy.pdf',
         ]);
     }
 
@@ -75,4 +76,27 @@ class PublicLookupTest extends TestCase
         $response->assertStatus(404)
             ->assertJsonPath('message', 'Data pengujian tidak ditemukan atau tidak aktif.');
     }
+
+    /**
+     * Test pencarian nomor pengujian yang belum selesai atau belum upload file ditolak.
+     */
+    public function test_pencarian_nomor_pengujian_belum_upload_ditolak(): void
+    {
+        Pengujian::create([
+            'nomor_pengujian' => 'UJI-BELUM-001',
+            'nama_pemohon' => 'Andi',
+            'email_pemohon' => 'andi@gmail.com',
+            'jenis_pengujian' => 'Deteksi GMO',
+            'status' => 'diproses',
+            'file_laporan' => null,
+        ]);
+
+        $response = $this->postJson('/api/public/pengujian/cari', [
+            'nomor_pengujian' => 'UJI-BELUM-001',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('status', 'diproses');
+    }
 }
+

@@ -1,0 +1,17 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # 1. Lindungi berkas sensitif dari akses luar
+    RewriteRule ^(\.env|\.git|composer\.(json|lock)|package(-lock)?\.json) - [F,L,NC]
+
+    # 2. Rute API diteruskan ke index.php Laravel
+    RewriteCond %{REQUEST_URI} ^/api/ [NC]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+
+    # 3. Routing SPA Vue 3 (Mencegah 404 saat refresh halaman)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>

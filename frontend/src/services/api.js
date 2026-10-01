@@ -5,7 +5,9 @@ import router from '../router'
 
 // Membuat instance axios dengan konfigurasi dasar
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_BASE_URL !== undefined 
+    ? import.meta.env.VITE_API_BASE_URL 
+    : (import.meta.env.DEV ? 'http://localhost:8000' : ''),
   timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
@@ -37,17 +39,28 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const authStore = useAuthStore()
+    const aksesPublikStore = useAksesPublikStore()
     
     if (error.response) {
       const status = error.response.status
       
       // Jika token tidak valid / kedaluwarsa (401 Unauthorized)
       if (status === 401) {
-        // Hanya arahkan ke login admin jika route saat ini adalah area admin
         const currentRoute = router.currentRoute.value
-        if (currentRoute.path.startsWith('/admin')) {
+        if (currentRoute.path.startsWith('/portal-brmp') || currentRoute.path.startsWith('/admin')) {
           authStore.clearAuth()
           router.push({ name: 'AdminLogin', query: { redirect: currentRoute.fullPath } })
+        } else {
+          // Token akses publik pengguna jasa kedaluwarsa (30 menit) atau tidak valid
+          if (aksesPublikStore.token) {
+            aksesPublikStore.clearAkses()
+            if (currentRoute.name === 'FormSkm' || currentRoute.name === 'HasilUnduh') {
+              router.replace({ 
+                name: 'CariPengujian', 
+                query: { session_expired: '1' } 
+              })
+            }
+          }
         }
       }
     }

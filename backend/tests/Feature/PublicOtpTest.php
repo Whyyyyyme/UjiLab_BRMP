@@ -24,6 +24,8 @@ class PublicOtpTest extends TestCase
             'nama_pemohon' => 'Budi',
             'email_pemohon' => 'budi@example.com',
             'jenis_pengujian' => 'Deteksi GMO',
+            'status' => 'selesai',
+            'file_laporan' => 'hasil_uji/dummy.pdf',
         ]);
     }
 
@@ -36,6 +38,7 @@ class PublicOtpTest extends TestCase
 
         $response = $this->postJson('/api/public/otp/kirim', [
             'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
         ]);
 
         $response->assertStatus(200);
@@ -54,6 +57,22 @@ class PublicOtpTest extends TestCase
     }
 
     /**
+     * Test kirim OTP ditolak jika nomor pengujian tidak cocok (IDOR Prevention).
+     */
+    public function test_kirim_otp_ditolak_jika_nomor_pengujian_tidak_cocok(): void
+    {
+        Mail::fake();
+
+        $response = $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => 'NOMOR-SALAH-123',
+        ]);
+
+        $response->assertStatus(404)
+            ->assertJsonPath('message', 'Data pengujian tidak ditemukan.');
+    }
+
+    /**
      * Test cooldown 60 detik kirim ulang OTP (F-05).
      */
     public function test_cooldown_60_detik_kirim_ulang_otp(): void
@@ -61,10 +80,16 @@ class PublicOtpTest extends TestCase
         Mail::fake();
 
         // Kirim pertama
-        $this->postJson('/api/public/otp/kirim', ['pengujian_id' => $this->pengujian->id]);
+        $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
+        ]);
 
         // Kirim kedua langsung (harus ditolak 429)
-        $response = $this->postJson('/api/public/otp/kirim', ['pengujian_id' => $this->pengujian->id]);
+        $response = $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
+        ]);
 
         $response->assertStatus(429)
             ->assertJsonStructure(['message']);
@@ -78,7 +103,10 @@ class PublicOtpTest extends TestCase
         Mail::fake();
 
         // 1. Minta OTP pertama
-        $this->postJson('/api/public/otp/kirim', ['pengujian_id' => $this->pengujian->id]);
+        $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
+        ]);
         $otpLama = OtpVerifikasi::where('pengujian_id', $this->pengujian->id)->latest()->first();
         $this->assertEquals('aktif', $otpLama->status);
 
@@ -86,7 +114,10 @@ class PublicOtpTest extends TestCase
         $otpLama->save();
 
         // 2. Minta OTP kedua
-        $this->postJson('/api/public/otp/kirim', ['pengujian_id' => $this->pengujian->id]);
+        $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
+        ]);
         
         // Pastikan OTP lama statusnya jadi kadaluarsa
         $otpLama->refresh();
@@ -105,12 +136,16 @@ class PublicOtpTest extends TestCase
         Mail::fake();
 
         // Kirim OTP
-        $this->postJson('/api/public/otp/kirim', ['pengujian_id' => $this->pengujian->id]);
+        $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
+        ]);
         
         // Cek input salah 4 kali
         for ($i = 1; $i <= 4; $i++) {
             $response = $this->postJson('/api/public/otp/verifikasi', [
                 'pengujian_id' => $this->pengujian->id,
+                'nomor_pengujian' => $this->pengujian->nomor_pengujian,
                 'kode' => '000000', // kode salah
             ]);
 
@@ -122,6 +157,7 @@ class PublicOtpTest extends TestCase
         // Percobaan ke-5 salah -> Lockout
         $response = $this->postJson('/api/public/otp/verifikasi', [
             'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
             'kode' => '000000', // kode salah
         ]);
 
@@ -144,6 +180,7 @@ class PublicOtpTest extends TestCase
         for ($i = 1; $i <= 5; $i++) {
             $response = $this->postJson('/api/public/otp/kirim', [
                 'pengujian_id' => $this->pengujian->id,
+                'nomor_pengujian' => $this->pengujian->nomor_pengujian,
             ]);
             $response->assertStatus(200);
 
@@ -156,10 +193,62 @@ class PublicOtpTest extends TestCase
         // Percobaan ke-6 harus diblokir oleh rate limiter per nomor pengujian (429)
         $response = $this->postJson('/api/public/otp/kirim', [
             'pengujian_id' => $this->pengujian->id,
+            'nomor_pengujian' => $this->pengujian->nomor_pengujian,
         ]);
 
         $response->assertStatus(429)
             ->assertJsonPath('message', 'Batas pengiriman kode OTP untuk nomor pengujian ini telah tercapai (maksimal 5 kali per jam). Silakan coba lagi nanti.');
     }
+
+    /**
+     * Test route-level rate limiting pada verifikasi OTP (mencegah brute-force) (throttle:10,1).
+     */
+    public function test_verifikasi_otp_route_rate_limiting(): void
+    {
+        Mail::fake();
+
+        // 10 request pertama
+        for ($i = 0; $i < 10; $i++) {
+            $response = $this->postJson('/api/public/otp/verifikasi', [
+                'pengujian_id' => 99999, // dummy id
+                'nomor_pengujian' => 'DUMMY-NOMOR',
+                'kode' => '123456',
+            ]);
+            // Bukan 429
+            $this->assertNotEquals(429, $response->status());
+        }
+
+        // Request ke-11 harus diblokir oleh route throttle (429 Too Many Requests)
+        $response = $this->postJson('/api/public/otp/verifikasi', [
+            'pengujian_id' => 99999,
+            'nomor_pengujian' => 'DUMMY-NOMOR',
+            'kode' => '123456',
+        ]);
+        $response->assertStatus(429);
+    }
+
+    /**
+     * Test kirim OTP ditolak jika pengujian belum selesai atau file laporan belum diunggah.
+     */
+    public function test_kirim_otp_ditolak_jika_belum_upload(): void
+    {
+        $inProgress = Pengujian::create([
+            'nomor_pengujian' => 'UJI-PROSES-001',
+            'nama_pemohon' => 'Budi',
+            'email_pemohon' => 'budi@example.com',
+            'jenis_pengujian' => 'Deteksi GMO',
+            'status' => 'diproses',
+            'file_laporan' => null,
+        ]);
+
+        $response = $this->postJson('/api/public/otp/kirim', [
+            'pengujian_id' => $inProgress->id,
+            'nomor_pengujian' => $inProgress->nomor_pengujian,
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Pengujian ini masih dalam proses pengerjaan di laboratorium dan berkas hasil uji (PDF) belum diunggah.');
+    }
 }
+
 

@@ -42,6 +42,29 @@ class PublicVerificationPageTest extends TestCase
     }
 
     /**
+     * Test verifikasi nomor pengujian dengan garis miring (slash) seperti format penomoran lab.
+     */
+    public function test_verifikasi_dokumen_publik_dengan_karakter_garis_miring(): void
+    {
+        Pengujian::create([
+            'nomor_pengujian' => '012/LAB-BIO/IX/2026',
+            'nama_pemohon' => 'Budi Santoso',
+            'email_pemohon' => 'budi@example.com',
+            'jenis_pengujian' => 'Kadar Air',
+            'status' => 'selesai',
+        ]);
+
+        $response = $this->getJson("/api/public/verifikasi/012/LAB-BIO/IX/2026");
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'nomor_pengujian' => '012/LAB-BIO/IX/2026',
+                'jenis_pengujian' => 'Kadar Air',
+                'status' => 'selesai',
+            ]);
+    }
+
+    /**
      * Test verifikasi nomor salah mengembalikan error 404 umum (anti-enumeration) (F-153).
      */
     public function test_verifikasi_dokumen_publik_salah_nomor_404(): void

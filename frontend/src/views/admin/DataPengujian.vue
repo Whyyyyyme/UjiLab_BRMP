@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import api from '../../services/api'
 import { useAuthStore } from '../../stores/auth'
 import { AlertTriangle, CheckCircle2, Search, Plus, Upload, Edit, Trash2, FileText, Loader2, Download, RotateCcw, ChevronLeft, ChevronRight, FileQuestion, X, Eye, EyeOff, ExternalLink, Mail } from '@lucide/vue'
+import JenisPengujianSelect from '../../components/admin/JenisPengujianSelect.vue'
+import { KATEGORI_PENGUJIAN_LIST } from '../../constants/jenisPengujian'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -79,19 +81,8 @@ const form = ref({
 const errorMessage = ref('')
 const successMessage = ref('')
 
-// List 9 Jenis Pengujian
-const jenisPengujianList = [
-  'Analisis SSR/RAPD',
-  'Deteksi GMO',
-  'Deteksi Virus secara Molekuler',
-  'Analisis Ploidi Level',
-  'Uji Mutu Benih (ISTA)',
-  'Liofilisasi',
-  'Enumerasi Total Mikroba Bakteri/Cendawan',
-  'Deteksi Mikroba secara Molekuler (Bakteri/Cendawan)',
-  'Uji Sensitivitas Bakteri',
-  'Pengujian Lainnya'
-]
+// List Kategori Pengujian untuk Filter Toolbar
+const jenisPengujianList = KATEGORI_PENGUJIAN_LIST
 
 // Fetch Data
 const fetchData = async (page = 1) => {
@@ -143,7 +134,8 @@ const openPreview = async (id, type, nomorPengujian) => {
     previewUrl.value = window.URL.createObjectURL(blob)
   } catch (error) {
     console.error('Failed to load preview:', error)
-    alert('Gagal memuat pratinjau berkas. Pastikan file tersedia di server.')
+    errorMessage.value = 'Gagal memuat pratinjau berkas. Pastikan file tersedia di server.'
+    setTimeout(() => { errorMessage.value = '' }, 4000)
     showPreviewModal.value = false
   } finally {
     previewLoading.value = false
@@ -175,13 +167,16 @@ const downloadFile = async (id, type, nomorPengujian) => {
     const url = window.URL.createObjectURL(new Blob([response.data]))
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `${type === 'laporan' ? 'Laporan' : 'Sertifikat'}_${nomorPengujian}.pdf`)
+    const cleanNomor = String(nomorPengujian || '').replace(/[/\\?%*:|"<>]/g, '_')
+    link.setAttribute('download', `${type === 'laporan' ? 'Laporan' : 'Sertifikat'}_${cleanNomor}.pdf`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('Failed to download file:', error)
-    alert('Gagal mengunduh berkas. Pastikan file tersedia di server.')
+    errorMessage.value = 'Gagal mengunduh berkas. Pastikan file tersedia di server.'
+    setTimeout(() => { errorMessage.value = '' }, 4000)
   }
 }
 
@@ -416,13 +411,212 @@ const confirmDelete = async () => {
   }
 }
 
-// Navigate to Upload page
-const goToUpload = (item) => {
-  router.push({ name: 'UploadHasil', params: { id: item.id } })
+// Upload / Revisi Modal State & Logic
+const showUploadModal = ref(false)
+const selectedItemForUpload = ref(null)
+const uploadFile = ref(null)
+const uploadPdfPreviewUrl = ref('')
+const showUploadPdfPreview = ref(false)
+const isParsingUploadPdf = ref(false)
+const isSavingUpload = ref(false)
+const uploadExtractionMethod = ref('')
+const uploadForm = ref({
+  id: null,
+  nomor_pengujian: '',
+  nama_pemohon: '',
+  email_pemohon: '',
+  jenis_pengujian: '',
+  versi: 1,
+  status: 'diproses'
+})
+const uploadAutofilled = ref({
+  nomor_pengujian: false,
+  nama_pemohon: false,
+  email_pemohon: false,
+  jenis_pengujian: false
+})
+const uploadDifferences = ref({
+  nomor_pengujian: false,
+  nama_pemohon: false,
+  email_pemohon: false,
+  jenis_pengujian: false
+})
+
+const openUploadModal = (item) => {
+  selectedItemForUpload.value = item
+  uploadForm.value = {
+    id: item.id,
+    nomor_pengujian: item.nomor_pengujian || '',
+    nama_pemohon: item.nama_pemohon || '',
+    email_pemohon: item.email_pemohon || '',
+    jenis_pengujian: item.jenis_pengujian || '',
+    versi: item.versi || 1,
+    status: item.status || 'diproses'
+  }
+  uploadAutofilled.value = {
+    nomor_pengujian: false,
+    nama_pemohon: false,
+    email_pemohon: false,
+    jenis_pengujian: false
+  }
+  uploadDifferences.value = {
+    nomor_pengujian: false,
+    nama_pemohon: false,
+    email_pemohon: false,
+    jenis_pengujian: false
+  }
+  if (uploadPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(uploadPdfPreviewUrl.value)
+    uploadPdfPreviewUrl.value = ''
+  }
+  uploadFile.value = null
+  showUploadPdfPreview.value = false
+  isParsingUploadPdf.value = false
+  isSavingUpload.value = false
+  uploadExtractionMethod.value = ''
+  errorMessage.value = ''
+  showUploadModal.value = true
+}
+
+const closeUploadModal = () => {
+  if (uploadPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(uploadPdfPreviewUrl.value)
+    uploadPdfPreviewUrl.value = ''
+  }
+  uploadFile.value = null
+  showUploadPdfPreview.value = false
+  showUploadModal.value = false
+  selectedItemForUpload.value = null
+}
+
+const removeUploadFile = () => {
+  if (uploadPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(uploadPdfPreviewUrl.value)
+    uploadPdfPreviewUrl.value = ''
+  }
+  uploadFile.value = null
+  showUploadPdfPreview.value = false
+  uploadExtractionMethod.value = ''
+  uploadAutofilled.value = {
+    nomor_pengujian: false,
+    nama_pemohon: false,
+    email_pemohon: false,
+    jenis_pengujian: false
+  }
+  uploadDifferences.value = {
+    nomor_pengujian: false,
+    nama_pemohon: false,
+    email_pemohon: false,
+    jenis_pengujian: false
+  }
+  if (selectedItemForUpload.value) {
+    uploadForm.value.nomor_pengujian = selectedItemForUpload.value.nomor_pengujian || ''
+    uploadForm.value.nama_pemohon = selectedItemForUpload.value.nama_pemohon || ''
+    uploadForm.value.email_pemohon = selectedItemForUpload.value.email_pemohon || ''
+    uploadForm.value.jenis_pengujian = selectedItemForUpload.value.jenis_pengujian || ''
+  }
+  const fileInput = document.getElementById('upload-modal-file')
+  if (fileInput) fileInput.value = ''
+}
+
+const openUploadPdfInNewTab = () => {
+  if (uploadPdfPreviewUrl.value) {
+    window.open(uploadPdfPreviewUrl.value, '_blank')
+  }
+}
+
+const handleUploadFileChange = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  uploadFile.value = file
+  
+  if (uploadPdfPreviewUrl.value) {
+    window.URL.revokeObjectURL(uploadPdfPreviewUrl.value)
+  }
+  uploadPdfPreviewUrl.value = window.URL.createObjectURL(file)
+  showUploadPdfPreview.value = true
+
+  isParsingUploadPdf.value = true
+  errorMessage.value = ''
+  uploadExtractionMethod.value = ''
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  try {
+    const response = await api.post('/api/admin/pengujian/parse-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    const data = response.data
+    uploadExtractionMethod.value = data.method || 'regex'
+
+    const original = selectedItemForUpload.value || {}
+
+    if (data.nomor_pengujian) {
+      uploadForm.value.nomor_pengujian = data.nomor_pengujian
+      uploadAutofilled.value.nomor_pengujian = true
+      uploadDifferences.value.nomor_pengujian = (data.nomor_pengujian !== original.nomor_pengujian)
+    }
+    if (data.nama_pemohon) {
+      uploadForm.value.nama_pemohon = data.nama_pemohon
+      uploadAutofilled.value.nama_pemohon = true
+      uploadDifferences.value.nama_pemohon = (data.nama_pemohon !== original.nama_pemohon)
+    }
+    if (data.email_pemohon) {
+      uploadForm.value.email_pemohon = data.email_pemohon
+      uploadAutofilled.value.email_pemohon = true
+      uploadDifferences.value.email_pemohon = (data.email_pemohon !== original.email_pemohon)
+    }
+    if (data.jenis_pengujian) {
+      uploadForm.value.jenis_pengujian = data.jenis_pengujian
+      uploadAutofilled.value.jenis_pengujian = true
+      uploadDifferences.value.jenis_pengujian = (data.jenis_pengujian !== original.jenis_pengujian)
+    }
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = error.response?.data?.message || 'Gagal mengekstrak berkas PDF.'
+  } finally {
+    isParsingUploadPdf.value = false
+  }
+}
+
+const handleConfirmUpload = async () => {
+  if (!uploadFile.value) {
+    errorMessage.value = 'Silakan pilih berkas PDF terlebih dahulu.'
+    return
+  }
+
+  isSavingUpload.value = true
+  errorMessage.value = ''
+
+  const formData = new FormData()
+  formData.append('file_laporan', uploadFile.value)
+  formData.append('nomor_pengujian', uploadForm.value.nomor_pengujian)
+  formData.append('nama_pemohon', uploadForm.value.nama_pemohon)
+  formData.append('email_pemohon', uploadForm.value.email_pemohon)
+  formData.append('jenis_pengujian', uploadForm.value.jenis_pengujian)
+
+  try {
+    const response = await api.post(`/api/admin/pengujian/${uploadForm.value.id}/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+
+    const newVersi = response.data?.versi || (uploadForm.value.status === 'selesai' ? (uploadForm.value.versi + 1) : 1)
+    successMessage.value = `Berkas hasil pengujian berhasil disimpan & diunggah (Versi v${newVersi})!`
+    closeUploadModal()
+    fetchData(currentPage.value)
+    setTimeout(() => { successMessage.value = '' }, 4000)
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || 'Gagal mengunggah berkas pengujian.'
+  } finally {
+    isSavingUpload.value = false
+  }
 }
 
 const closeAllModals = () => {
   if (showAddModal.value) closeAddModal()
+  if (showUploadModal.value) closeUploadModal()
   if (showEditModal.value) showEditModal.value = false
   if (showPreviewModal.value) closePreview()
   if (showDeleteConfirm.value) showDeleteConfirm.value = false
@@ -587,8 +781,8 @@ onBeforeUnmount(() => {
                 <span :class="['badge-status', item.status]">
                   {{ item.status === 'selesai' ? 'Selesai' : 'Menunggu Unggah' }}
                 </span>
-                <div v-if="item.status === 'selesai'" class="status-extra-group">
-                  <div v-if="item.file_laporan" class="admin-file-links">
+                <div v-if="item.status === 'selesai' && item.file_laporan" class="status-extra-group">
+                  <div class="admin-file-links">
                     <a 
                       @click.prevent="openPreview(item.id, 'laporan', item.nomor_pengujian)" 
                       href="#" 
@@ -598,37 +792,13 @@ onBeforeUnmount(() => {
                       <span class="flex-icon-center" style="gap: 4px; display: inline-flex;"><FileText :size="12" /> Laporan</span>
                     </a>
                   </div>
-                  <!-- Status Notifikasi Email (Opsi 1: Pure Email) -->
-                  <div class="email-status-box">
-                    <span 
-                      v-if="item.latest_notifikasi_hasil?.status === 'terkirim'" 
-                      class="notif-pill success" 
-                      :title="'Terkirim: ' + new Date(item.latest_notifikasi_hasil.created_at).toLocaleString('id-ID')"
-                    >
-                      <Mail :size="11" /> Email Terkirim
-                    </span>
-                    <span 
-                      v-else-if="item.latest_notifikasi_hasil?.status === 'gagal'" 
-                      class="notif-pill danger" 
-                      :title="'Gagal kirim: ' + (item.latest_notifikasi_hasil.pesan_error || 'Gagal koneksi SMTP')"
-                    >
-                      <AlertTriangle :size="11" /> Gagal Kirim
-                    </span>
-                    <span 
-                      v-else 
-                      class="notif-pill muted" 
-                      title="Belum pernah dikirim notifikasi email"
-                    >
-                      <Mail :size="11" /> Belum Dikirim
-                    </span>
-                  </div>
                 </div>
               </td>
               <td>{{ new Date(item.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) }}</td>
               <td>
                 <div class="btn-actions">
-                  <button @click="goToUpload(item)" class="action-btn upload flex-icon-center" title="Unggah Berkas PDF Hasil Uji">
-                    <Upload :size="12" /> Unggah
+                  <button @click="openUploadModal(item)" class="action-btn upload flex-icon-center" :title="item.status === 'selesai' ? 'Revisi / Unggah Ulang Berkas PDF' : 'Unggah Berkas PDF Hasil Uji'">
+                    <Upload :size="12" /> {{ item.status === 'selesai' ? 'Revisi' : 'Unggah' }}
                   </button>
                   <button @click="openEditModal(item)" class="action-btn edit flex-icon-center" title="Edit Metadata">
                     <Edit :size="12" /> Edit
@@ -836,19 +1006,14 @@ onBeforeUnmount(() => {
 
               <div class="form-group">
                 <div class="form-label-row">
-                  <label>Jenis Pengujian</label>
+                  <label>Jenis Pengujian &amp; Parameter Uji</label>
                   <span v-if="autofilledFields.jenis_pengujian" class="badge-autofill">Ekstraksi PDF</span>
                 </div>
-                <select 
-                  v-model="form.jenis_pengujian" 
-                  :class="{ 'autofilled-highlight': autofilledFields.jenis_pengujian }"
+                <JenisPengujianSelect
+                  v-model="form.jenis_pengujian"
+                  :highlighted="autofilledFields.jenis_pengujian"
                   required
-                >
-                  <option value="" disabled>Pilih Jenis Pengujian</option>
-                  <option v-for="jenis in jenisPengujianList" :key="jenis" :value="jenis">
-                    {{ jenis }}
-                  </option>
-                </select>
+                />
               </div>
 
               <div class="modal-footer">
@@ -856,6 +1021,221 @@ onBeforeUnmount(() => {
                 <button type="submit" class="btn-primary" :disabled="isParsing || isSaving">
                   <span v-if="isSaving" class="flex-icon-center"><Loader2 class="animate-spin" :size="16" /> Menyimpan...</span>
                   <span v-else>Simpan Data</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 1B. Modal Unggah / Revisi Berkas Pengujian -->
+    <div v-if="showUploadModal" class="modal-backdrop" @click.self="closeUploadModal">
+      <div class="modal-card" :class="{ 'modal-card-split': uploadFile && showUploadPdfPreview }">
+        <div class="modal-header">
+          <div class="modal-header-info">
+            <h3>{{ selectedItemForUpload?.status === 'selesai' ? 'Revisi Berkas Hasil Pengujian' : 'Unggah Berkas Hasil Pengujian' }}</h3>
+            <span class="badge-version" style="font-size: 11px; padding: 2px 8px;">
+              {{ selectedItemForUpload?.status === 'selesai' ? `Versi Saat Ini: v${selectedItemForUpload?.versi || 1}` : 'Dokumen Baru (v1)' }}
+            </span>
+            <span v-if="uploadFile" class="file-tag-pill">
+              <FileText :size="13" /> {{ uploadFile.name }}
+            </span>
+          </div>
+          <div class="modal-header-actions">
+            <button 
+              v-if="uploadFile" 
+              type="button" 
+              @click="showUploadPdfPreview = !showUploadPdfPreview" 
+              class="btn-toggle-preview"
+              :title="showUploadPdfPreview ? 'Sembunyikan panel pratinjau' : 'Tampilkan panel pratinjau PDF'"
+            >
+              <component :is="showUploadPdfPreview ? EyeOff : Eye" :size="15" />
+              <span>{{ showUploadPdfPreview ? 'Tutup Preview' : 'Preview Berkas' }}</span>
+            </button>
+            <button @click="closeUploadModal" class="close-btn">&times;</button>
+          </div>
+        </div>
+
+        <div class="modal-split-container" :class="{ 'with-preview': uploadFile && showUploadPdfPreview }">
+          
+          <!-- SISI KIRI: PRATINJAU BERKAS PDF -->
+          <div v-if="uploadFile && showUploadPdfPreview" class="modal-preview-pane">
+            <div class="preview-pane-bar">
+              <div class="preview-bar-file">
+                <FileText :size="15" class="preview-bar-icon" />
+                <span class="preview-bar-name" :title="uploadFile.name">{{ uploadFile.name }}</span>
+                <span class="preview-bar-size">({{ (uploadFile.size / 1024).toFixed(1) }} KB)</span>
+              </div>
+              <div class="preview-bar-tools">
+                <button 
+                  type="button" 
+                  @click="openUploadPdfInNewTab" 
+                  class="btn-tool-tab"
+                  title="Buka dokumen PDF di tab baru browser"
+                >
+                  <ExternalLink :size="13" />
+                  <span>Tab Baru</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="preview-pane-viewer">
+              <div v-if="isParsingUploadPdf" class="preview-loading-overlay">
+                <Loader2 class="animate-spin text-brand" :size="28" />
+                <p>Menganalisis dokumen & mengekstrak data...</p>
+              </div>
+              <iframe 
+                v-if="uploadPdfPreviewUrl" 
+                :src="uploadPdfPreviewUrl" 
+                class="add-pdf-iframe"
+                title="Pratinjau Berkas PDF Unggah Pengujian"
+              ></iframe>
+            </div>
+
+            <div class="preview-pane-hint">
+              <span>💡 <strong>Verifikasi Dokumen:</strong> Berkas baru belum disimpan ke database. Anda dapat meninjau isi PDF dan memeriksa data di samping sebelum menyimpan.</span>
+            </div>
+          </div>
+
+          <!-- SISI KANAN: FORMULIR RINCIAN & KONFIRMASI -->
+          <div class="modal-form-pane">
+            <form @submit.prevent="handleConfirmUpload" class="modal-form">
+              <div v-if="errorMessage" class="modal-alert alert-danger">
+                <AlertTriangle :size="16" style="margin-right: 8px; display: inline-block; vertical-align: middle;" /> {{ errorMessage }}
+              </div>
+
+              <!-- Info Status Banner -->
+              <div v-if="selectedItemForUpload?.status === 'selesai'" class="upload-revision-alert">
+                <div class="revision-alert-icon">⚠️</div>
+                <div class="revision-alert-text">
+                  <strong>Peringatan Revisi Dokumen:</strong>
+                  Data pengujian ini sudah memiliki berkas versi <strong>v{{ selectedItemForUpload?.versi || 1 }}</strong>. 
+                  Menyimpan berkas baru akan menaikkan dokumen menjadi <strong>v{{ (selectedItemForUpload?.versi || 1) + 1 }}</strong> dan mengirimkan notifikasi pembaruan ke pemohon. Berkas lama <strong>tidak akan tertimpa</strong> sebelum Anda menekan tombol Simpan di bawah.
+                </div>
+              </div>
+              <div v-else class="upload-new-alert">
+                <div class="new-alert-icon">ℹ️</div>
+                <div class="new-alert-text">
+                  <strong>Unggah Berkas Pengujian (v1):</strong>
+                  Pengujian berstatus menunggu berkas. Unggah dokumen PDF hasil uji untuk menyelesaikan pengujian dan mengaktifkan akses unduh bagi pemohon.
+                </div>
+              </div>
+
+              <!-- File Selector Section -->
+              <div class="autofill-section">
+                <div class="autofill-header-row">
+                  <span class="section-title flex-icon-center" style="gap: 6px;">
+                    <Upload :size="16" /> {{ selectedItemForUpload?.status === 'selesai' ? 'Pilih Berkas Pengganti / Revisi (PDF)' : 'Pilih Berkas Laporan Hasil (PDF)' }}
+                  </span>
+                  <span v-if="uploadExtractionMethod" class="extraction-badge">
+                    ⚡ Terisi Otomatis ({{ uploadExtractionMethod === 'ai' ? 'Smart AI' : 'Regex PDF' }})
+                  </span>
+                </div>
+
+                <div class="file-input-group">
+                  <label for="upload-modal-file">Berkas Dokumen PDF (Maksimal 50MB)</label>
+                  <div class="file-input-action-row">
+                    <input 
+                      type="file" 
+                      id="upload-modal-file" 
+                      accept=".pdf" 
+                      @change="handleUploadFileChange"
+                      :disabled="isParsingUploadPdf || isSavingUpload"
+                    />
+                    <button 
+                      v-if="uploadFile && !showUploadPdfPreview" 
+                      type="button" 
+                      @click="showUploadPdfPreview = true" 
+                      class="btn-preview-shortcut"
+                    >
+                      <Eye :size="13" /> Buka Preview
+                    </button>
+                    <button 
+                      v-if="uploadFile" 
+                      type="button" 
+                      @click="removeUploadFile" 
+                      class="btn-remove-selected-file"
+                      title="Ganti berkas PDF"
+                    >
+                      <X :size="14" />
+                    </button>
+                  </div>
+                  <span v-if="uploadFile" class="selected-file flex-icon-center" style="gap: 4px; display: inline-flex;">
+                    <CheckCircle2 :size="14" style="color: #10b981;" /> {{ uploadFile.name }} ({{ (uploadFile.size / 1024).toFixed(1) }} KB)
+                  </span>
+                </div>
+                <div v-if="isParsingUploadPdf" class="parsing-loader">
+                  <span class="spinner"><Loader2 class="animate-spin" :size="16" /></span> Mengekstrak data dari dokumen PDF...
+                </div>
+              </div>
+
+              <!-- Metadata fields with diff/autofill badges -->
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Nomor Pengujian</label>
+                  <span v-if="uploadAutofilled.nomor_pengujian" class="badge-autofill">Ekstraksi PDF</span>
+                  <span v-if="uploadDifferences.nomor_pengujian" class="badge-diff">Nilai Berubah</span>
+                </div>
+                <input 
+                  type="text" 
+                  v-model="uploadForm.nomor_pengujian" 
+                  placeholder="Contoh: UJI-2026-001" 
+                  :class="{ 'autofilled-highlight': uploadAutofilled.nomor_pengujian }"
+                  required 
+                />
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Nama Pemohon</label>
+                  <span v-if="uploadAutofilled.nama_pemohon" class="badge-autofill">Ekstraksi PDF</span>
+                  <span v-if="uploadDifferences.nama_pemohon" class="badge-diff">Nilai Berubah</span>
+                </div>
+                <input 
+                  type="text" 
+                  v-model="uploadForm.nama_pemohon" 
+                  placeholder="Masukkan nama pemohon" 
+                  :class="{ 'autofilled-highlight': uploadAutofilled.nama_pemohon }"
+                  required 
+                />
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Email Pemohon</label>
+                  <span v-if="uploadAutofilled.email_pemohon" class="badge-autofill">Ekstraksi PDF</span>
+                  <span v-if="uploadDifferences.email_pemohon" class="badge-diff">Nilai Berubah</span>
+                </div>
+                <input 
+                  type="email" 
+                  v-model="uploadForm.email_pemohon" 
+                  placeholder="alamat@email.com" 
+                  :class="{ 'autofilled-highlight': uploadAutofilled.email_pemohon }"
+                  required 
+                />
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label>Jenis Pengujian &amp; Parameter Uji</label>
+                  <span v-if="uploadAutofilled.jenis_pengujian" class="badge-autofill">Ekstraksi PDF</span>
+                  <span v-if="uploadDifferences.jenis_pengujian" class="badge-diff">Nilai Berubah</span>
+                </div>
+                <JenisPengujianSelect
+                  v-model="uploadForm.jenis_pengujian"
+                  :highlighted="uploadAutofilled.jenis_pengujian"
+                  required
+                />
+              </div>
+
+              <div class="modal-footer">
+                <button type="button" @click="closeUploadModal" class="btn-secondary" :disabled="isSavingUpload">Batal</button>
+                <button type="submit" class="btn-primary" :disabled="!uploadFile || isParsingUploadPdf || isSavingUpload">
+                  <span v-if="isSavingUpload" class="flex-icon-center"><Loader2 class="animate-spin" :size="16" /> Menyimpan & Mengunggah...</span>
+                  <span v-else-if="selectedItemForUpload?.status === 'selesai'">Konfirmasi & Simpan Revisi (v{{ (selectedItemForUpload?.versi || 1) + 1 }})</span>
+                  <span v-else>Konfirmasi & Simpan Berkas (v1)</span>
                 </button>
               </div>
             </form>
@@ -896,12 +1276,11 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="form-group">
-            <label>Jenis Pengujian</label>
-            <select v-model="form.jenis_pengujian" required>
-              <option v-for="jenis in jenisPengujianList" :key="jenis" :value="jenis">
-                {{ jenis }}
-              </option>
-            </select>
+            <label>Jenis Pengujian &amp; Parameter Uji</label>
+            <JenisPengujianSelect
+              v-model="form.jenis_pengujian"
+              required
+            />
           </div>
 
           <div class="modal-footer">
@@ -1342,39 +1721,6 @@ onBeforeUnmount(() => {
   margin-top: 6px;
 }
 
-.email-status-box {
-  display: flex;
-}
-
-.notif-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 20px;
-  width: fit-content;
-  white-space: nowrap;
-}
-
-.notif-pill.success {
-  background: #ecfdf5;
-  color: #047857;
-  border: 1px solid #a7f3d0;
-}
-
-.notif-pill.danger {
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
-}
-
-.notif-pill.muted {
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #e2e8f0;
-}
 
 .spin-icon {
   animation: spin 1s linear infinite;
@@ -1432,14 +1778,18 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   z-index: 100;
-  padding: 16px;
+  padding: 20px 16px;
+  overflow-y: auto;
 }
 
 .modal-card {
   background: #ffffff;
   border-radius: 16px;
   width: 100%;
-  max-width: 520px;
+  max-width: 620px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 25px 50px -12px rgba(27, 43, 37, 0.25); /* Warmer shadow */
   border: 1px solid #DCDACD; /* Clean, warm border to prevent blending in */
   overflow: hidden;
@@ -1452,7 +1802,8 @@ onBeforeUnmount(() => {
 }
 
 .modal-header {
-  padding: 20px 24px;
+  flex-shrink: 0;
+  padding: 18px 24px;
   background: rgba(27, 77, 62, 0.02); /* Subtle green tint */
   border-bottom: 1px solid #DCDACD;
   display: flex;
@@ -1482,10 +1833,13 @@ onBeforeUnmount(() => {
 }
 
 .modal-form {
-  padding: 24px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .modal-desc {
@@ -1545,10 +1899,15 @@ onBeforeUnmount(() => {
 .modal-footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 12px;
   margin-top: 12px;
   padding-top: 16px;
   border-top: 1px solid #DCDACD;
+  position: sticky;
+  bottom: 0;
+  background: #ffffff;
+  z-index: 10;
 }
 
 /* Modal Inner Button overrides */
@@ -2192,6 +2551,54 @@ onBeforeUnmount(() => {
 @keyframes scaleIn {
   from { transform: scale(0.95); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
+}
+
+.upload-revision-alert {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-left: 4px solid #d97706;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.45;
+}
+
+.upload-revision-alert strong {
+  color: #78350f;
+}
+
+.upload-new-alert {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  border-left: 4px solid #16a34a;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #166534;
+  line-height: 1.45;
+}
+
+.upload-new-alert strong {
+  color: #14532d;
+}
+
+.badge-diff {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+  margin-left: 6px;
+  letter-spacing: 0.2px;
 }
 
 /* Mobile Responsiveness Rules */

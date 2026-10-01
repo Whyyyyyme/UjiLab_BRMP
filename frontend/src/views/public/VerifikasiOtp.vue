@@ -79,7 +79,8 @@ const handleSendOtp = async () => {
 
   try {
     const response = await api.post('/api/public/otp/kirim', {
-      pengujian_id: pengujianId.value
+      pengujian_id: pengujianId.value,
+      nomor_pengujian: nomorPengujian.value
     })
     
     isOtpSent.value = true
@@ -112,6 +113,7 @@ const handleVerifyOtp = async () => {
   try {
     const response = await api.post('/api/public/otp/verifikasi', {
       pengujian_id: pengujianId.value,
+      nomor_pengujian: nomorPengujian.value,
       kode: otpKode.value
     })
 

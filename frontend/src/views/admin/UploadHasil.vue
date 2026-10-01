@@ -3,6 +3,8 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../../services/api'
 import { AlertTriangle, CheckCircle2, Loader2, Save, ArrowLeft } from '@lucide/vue'
+import JenisPengujianSelect from '../../components/admin/JenisPengujianSelect.vue'
+import { KATEGORI_PENGUJIAN_LIST } from '../../constants/jenisPengujian'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,18 +40,7 @@ const highlightedFields = ref({
 const errorMessage = ref('')
 const successMessage = ref('')
 
-const jenisPengujianList = [
-  'Analisis SSR/RAPD',
-  'Deteksi GMO',
-  'Deteksi Virus secara Molekuler',
-  'Analisis Ploidi Level',
-  'Uji Mutu Benih (ISTA)',
-  'Liofilisasi',
-  'Enumerasi Total Mikroba Bakteri/Cendawan',
-  'Deteksi Mikroba secara Molekuler (Bakteri/Cendawan)',
-  'Uji Sensitivitas Bakteri',
-  'Pengujian Lainnya'
-]
+const jenisPengujianList = KATEGORI_PENGUJIAN_LIST
 
 // Fetch Pengujian Details
 const fetchPengujian = async () => {
@@ -275,18 +266,14 @@ onMounted(() => {
 
           <div class="form-group">
             <label>
-              Jenis Pengujian
+              Jenis Pengujian &amp; Parameter Uji
               <span v-if="highlightedFields.jenis_pengujian" class="highlight-badge">Terdeteksi PDF</span>
             </label>
-            <select 
-              v-model="form.jenis_pengujian" 
-              :class="{ 'highlight-field': highlightedFields.jenis_pengujian }"
+            <JenisPengujianSelect
+              v-model="form.jenis_pengujian"
+              :highlighted="highlightedFields.jenis_pengujian"
               required
-            >
-              <option v-for="jenis in jenisPengujianList" :key="jenis" :value="jenis">
-                {{ jenis }}
-              </option>
-            </select>
+            />
             <span v-if="autofillSource?.jenis_pengujian" class="original-val">Nilai asli PDF: "{{ autofillSource.jenis_pengujian }}"</span>
           </div>
 

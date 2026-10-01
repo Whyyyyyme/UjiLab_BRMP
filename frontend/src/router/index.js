@@ -30,7 +30,7 @@ const routes = [
     meta: { public: true, needsTokenAkses: true }
   },
   {
-    path: '/verifikasi/:nomor_pengujian',
+    path: '/verifikasi/:nomor_pengujian(.*)',
     name: 'VerifikasiDokumen',
     component: () => import('../views/public/VerifikasiDokumen.vue'),
     meta: { public: true }
@@ -38,13 +38,13 @@ const routes = [
 
   // === MODUL PETUGAS / ADMIN ===
   {
-    path: '/admin/login',
+    path: '/portal-brmp/login',
     name: 'AdminLogin',
     component: () => import('../views/admin/Login.vue'),
     meta: { guestOnly: true }
   },
   {
-    path: '/admin',
+    path: '/portal-brmp',
     component: () => import('../views/admin/AdminLayout.vue'),
     meta: { requiresAuth: true },
     children: [
@@ -89,10 +89,12 @@ const routes = [
       }
     ]
   },
-  // Fallback route
+  // Fallback 404 route
   {
     path: '/:pathMatch(.*)*',
-    redirect: '/'
+    name: 'NotFound',
+    component: () => import('../views/public/NotFound.vue'),
+    meta: { public: true }
   }
 ]
 
